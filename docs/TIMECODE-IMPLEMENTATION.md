@@ -164,7 +164,7 @@ timecode:
 
   # HyperDeck configuration
   hyperdeck:
-    host: "192.168.1.50"
+    host: "10.7.77.21"
     port: 9993
 
     # Only accept SDI-embedded timecode as "real"

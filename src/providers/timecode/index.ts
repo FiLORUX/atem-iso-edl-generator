@@ -10,7 +10,7 @@
  * import { createHyperDeckWithFallback } from './providers/timecode';
  *
  * const manager = createHyperDeckWithFallback({
- *   host: '192.168.1.50',
+ *   host: '10.7.77.21',
  *   frameRate: 25,
  * });
  *

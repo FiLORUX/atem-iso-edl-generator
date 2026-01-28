@@ -29,10 +29,10 @@ npm run dev
 
 ## Code Standards
 
-### Language
+### Style
 
-- **Code, comments, documentation:** British English
-- Consistent terminology with broadcast industry standards
+- Consistent terminology aligned with EBU/SMPTE broadcast standards
+- Clear, professional documentation suitable for broadcast engineers
 
 ### TypeScript
 

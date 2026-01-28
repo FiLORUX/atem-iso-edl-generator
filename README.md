@@ -14,18 +14,18 @@ ATEM ISO EDL Generator captures switching events from Blackmagic ATEM switchers 
 
 ### Key Features
 
-- **Real-time event capture** — Monitors ATEM program bus changes via network
-- **Frame-accurate timestamps** — High-resolution timing with NTP synchronisation
-- **HyperDeck integration** — Queries recording filenames and timecode automatically
+- **Real-time event capture** — Monitors ATEM programme bus changes via network
+- **Frame-accurate timestamps** — Sub-frame precision with configurable timecode sources
+- **HyperDeck integration** — Reads RP-188 embedded timecode from SDI, queries clip metadata
 - **Universal EDL output** — CMX 3600 format with extended comments for file matching
-- **Web-based configuration** — Simple browser UI for settings and monitoring
-- **Zero-maintenance design** — Runs as a service, no babysitting required
+- **Web-based monitoring** — Live dashboard with source configuration and export controls
+- **Pluggable timecode** — System clock or HyperDeck SDI timecode with automatic fallback
 
 ### Use Cases
 
-- **Live multicam productions** — Generate EDLs for ISO recordings during live events
-- **Broadcast workflows** — Integrate with HyperDeck-based recording infrastructure
-- **Post-production handoff** — Deliver frame-accurate cut lists to editors
+- **Live multicam productions** — Generate EDLs for ISO recordings during transmission
+- **Broadcast workflows** — Integrate with HyperDeck-based ingest infrastructure
+- **Post-production handoff** — Deliver frame-accurate cut lists to offline editors
 - **Archive documentation** — Maintain searchable logs of all switching decisions
 
 ---
@@ -33,39 +33,42 @@ ATEM ISO EDL Generator captures switching events from Blackmagic ATEM switchers 
 ## Architecture
 
 ```
-┌─────────────────┐     ┌──────────────────────────┐     ┌─────────────────┐
-│  ATEM Switcher  │────▶│  ATEM ISO EDL Generator  │────▶│  EDL Files      │
-│  (Network)      │     │                          │     │  (.edl)         │
-└─────────────────┘     │  ┌────────────────────┐  │     └─────────────────┘
-                        │  │ ATEM Adapter       │  │
-┌─────────────────┐     │  │ • Event capture    │  │     ┌─────────────────┐
-│  HyperDeck(s)   │────▶│  │ • State tracking   │  │────▶│  Event Log      │
-│  (TCP 9993)     │     │  └────────────────────┘  │     │  (.jsonl)       │
-└─────────────────┘     │                          │     └─────────────────┘
-                        │  ┌────────────────────┐  │
-┌─────────────────┐     │  │ HyperDeck Adapter  │  │     ┌─────────────────┐
-│  Web Browser    │◀───▶│  │ • Clip queries     │  │     │  Web UI         │
-│                 │     │  │ • Timecode sync    │  │     │  (localhost)    │
-└─────────────────┘     │  └────────────────────┘  │     └─────────────────┘
-                        │                          │
-                        │  ┌────────────────────┐  │
-                        │  │ EDL Generator      │  │
-                        │  │ • CMX 3600 output  │  │
-                        │  │ • Comment metadata │  │
-                        │  └────────────────────┘  │
-                        └──────────────────────────┘
+┌─────────────────┐     ┌──────────────────────────────────┐     ┌─────────────────┐
+│  ATEM Switcher  │────▶│     ATEM ISO EDL Generator       │────▶│  EDL Files      │
+│  (UDP 9910)     │     │                                  │     │  (.edl)         │
+└─────────────────┘     │  ┌────────────────────────────┐  │     └─────────────────┘
+                        │  │ ATEM Adapter               │  │
+┌─────────────────┐     │  │ • Programme bus monitoring │  │     ┌─────────────────┐
+│  HyperDeck(s)   │────▶│  │ • Transition detection     │  │────▶│  Event Log      │
+│  (TCP 9993)     │     │  │ • M/E bank selection       │  │     │  (.jsonl)       │
+└─────────────────┘     │  └────────────────────────────┘  │     └─────────────────┘
+                        │                                  │
+┌─────────────────┐     │  ┌────────────────────────────┐  │
+│  Web Browser    │◀───▶│  │ Timecode Provider          │  │
+│                 │     │  │ • System clock source      │  │
+└─────────────────┘     │  │ • HyperDeck RP-188 source  │  │
+                        │  │ • Automatic fallback       │  │
+                        │  └────────────────────────────┘  │
+                        │                                  │
+                        │  ┌────────────────────────────┐  │
+                        │  │ Web Interface              │  │
+                        │  │ • Real-time dashboard      │  │
+                        │  │ • Source configuration     │  │
+                        │  │ • EDL export controls      │  │
+                        │  └────────────────────────────┘  │
+                        └──────────────────────────────────┘
 ```
 
 ### Components
 
 | Component | Purpose | Technology |
 |-----------|---------|------------|
-| **ATEM Adapter** | Connects to ATEM switcher, captures program changes | `atem-connection` library |
-| **HyperDeck Adapter** | Queries recording status, clip names, timecode | TCP Ethernet Protocol |
+| **ATEM Adapter** | Connects to ATEM switcher, captures programme changes | `atem-connection` library |
+| **HyperDeck Adapter** | Monitors recording status, reads clip metadata | Blackmagic Ethernet Protocol |
+| **Timecode Provider** | Manages timecode acquisition with fallback chain | System clock / RP-188 SDI |
 | **Event Store** | Persists all events with timestamps | JSONL append-only log |
 | **EDL Generator** | Converts events to CMX 3600 format | Custom TypeScript |
-| **Web Server** | Configuration UI and live monitoring | Express + static HTML |
-| **Health Monitor** | Watchdog, metrics, connection status | Prometheus-compatible |
+| **Web Server** | Dashboard, configuration UI, WebSocket updates | Express + vanilla JS |
 
 ---
 
@@ -74,8 +77,8 @@ ATEM ISO EDL Generator captures switching events from Blackmagic ATEM switchers 
 ### Prerequisites
 
 - **Node.js 20+** (LTS recommended)
-- **Network access** to ATEM switcher (default port 9910)
-- **Network access** to HyperDeck(s) (default port 9993)
+- **Network access** to ATEM switcher (UDP port 9910)
+- **Network access** to HyperDeck(s) (TCP port 9993)
 
 ### Quick Start
 
@@ -97,7 +100,7 @@ nano config/config.yaml
 npm start
 ```
 
-### Docker Deployment (Recommended for Production)
+### Docker Deployment
 
 ```bash
 # Build the image
@@ -125,74 +128,74 @@ Configuration is managed via YAML files in the `config/` directory.
 
 # ATEM Switcher Connection
 atem:
-  host: "192.168.1.240"
-  # Optional: specify M/E bank to monitor (default: 0)
-  mixEffect: 0
+  host: "10.7.77.7"
+  mixEffect: 0              # M/E bank to monitor (0 = M/E 1)
+  frameOffset: 1            # Compensate for processing latency
 
-# HyperDeck Connections (for filename/timecode queries)
+# Input Sources
+inputs:
+  1:
+    name: "Cam 1 - Centre Wide"
+    reelName: "CAM1"        # 8 chars max for EDL compatibility
+    filePrefix: "CAM1_"     # Expected prefix in HyperDeck recordings
+  2:
+    name: "Cam 2 - Centre MCU"
+    reelName: "CAM2"
+    filePrefix: "CAM2_"
+  3:
+    name: "Cam 3 - Centre ECU"
+    reelName: "CAM3"
+    filePrefix: "CAM3_"
+  4:
+    name: "Cam 4 - Steadicam"
+    reelName: "CAM4"
+    filePrefix: "CAM4_"
+
+# HyperDeck ISO Recorders
 hyperdecks:
   - name: "ISO-1"
-    host: "192.168.1.241"
-    inputMapping: 1        # Maps to ATEM input 1
+    host: "10.7.77.21"
+    inputMapping: 1         # Records ATEM input 1
   - name: "ISO-2"
-    host: "192.168.1.242"
+    host: "10.7.77.22"
     inputMapping: 2
   - name: "ISO-3"
-    host: "192.168.1.243"
+    host: "10.7.77.23"
     inputMapping: 3
   - name: "ISO-4"
-    host: "192.168.1.244"
+    host: "10.7.77.24"
     inputMapping: 4
 
 # EDL Output Settings
 edl:
   outputDirectory: "./output"
-  format: "cmx3600"         # Currently only CMX 3600 supported
+  format: "cmx3600"
   frameRate: 25             # 23.976, 24, 25, 29.97, 30, 50, 59.94, 60
   dropFrame: false          # true for 29.97/59.94 drop-frame
   includeComments: true     # Add FROM CLIP NAME and SOURCE FILE comments
 
 # Timecode Settings
 timecode:
-  source: "system"          # "system", "ntp", or "hyperdeck"
-  ntpServer: "pool.ntp.org" # Only used if source is "ntp"
+  source: "system"          # "system" or "hyperdeck"
+  frameRate: 25
+  startTimecode: "01:00:00:00"
+
+  # HyperDeck timecode source (when source: "hyperdeck")
+  hyperdeck:
+    host: "10.7.77.21"
+    port: 9993
+    requireSdiSource: true  # Only use RP-188 embedded timecode
+
+  # Fallback to system clock if primary fails
+  fallback:
+    enabled: true
+    delayMs: 3000
 
 # Web Interface
 web:
   enabled: true
   port: 3000
   host: "0.0.0.0"
-
-# Logging
-logging:
-  level: "info"             # "debug", "info", "warn", "error"
-  eventLog: true            # Write all events to JSONL file
-```
-
-### Input Name Mapping
-
-Map ATEM input numbers to human-readable names and recording file prefixes:
-
-```yaml
-# config/inputs.yaml
-
-inputs:
-  1:
-    name: "Camera 1 - Wide"
-    reelName: "CAM1"        # 8 chars max for EDL compatibility
-    filePrefix: "CAM1_"     # Expected prefix in HyperDeck recordings
-  2:
-    name: "Camera 2 - Close"
-    reelName: "CAM2"
-    filePrefix: "CAM2_"
-  3:
-    name: "Camera 3 - Guest"
-    reelName: "CAM3"
-    filePrefix: "CAM3_"
-  4:
-    name: "Graphics"
-    reelName: "GFX"
-    filePrefix: "GFX_"
 ```
 
 ---
@@ -203,39 +206,33 @@ inputs:
 
 1. **Start the service** — `npm start` or via Docker
 2. **Open the web UI** — Navigate to `http://localhost:3000`
-3. **Verify connections** — Check that ATEM and HyperDecks show "Connected"
+3. **Verify connections** — Check that ATEM shows "Connected" on the dashboard
 4. **Start HyperDeck recording** — Begin ISO recording on all decks
-5. **Run your show** — All program changes are logged automatically
-6. **Stop and export** — Click "Generate EDL" in the web UI
+5. **Run your show** — All programme changes are logged automatically
+6. **Export** — Click "Download EDL" in the Export tab
 
-### Command Line Interface
+### Web Interface
+
+The web interface provides three main views:
+
+| Tab | Purpose |
+|-----|---------|
+| **Dashboard** | Live programme/preview display, connection status, event log |
+| **Export** | EDL format selection, download controls, export history |
+| **Settings** | Source configuration, ATEM connection, timecode settings |
+
+### Command Line
 
 ```bash
 # Start with default config
 npm start
 
-# Start with custom config file
-npm start -- --config /path/to/config.yaml
+# Development mode with hot reload
+npm run dev
 
-# Generate EDL from existing event log
-npm run generate-edl -- --input ./logs/events-2026-01-28.jsonl --output ./output/
-
-# Validate configuration
-npm run validate-config
-
-# Run in debug mode
-DEBUG=atem-edl:* npm start
+# Build for production
+npm run build
 ```
-
-### Web UI Features
-
-| Feature | Description |
-|---------|-------------|
-| **Dashboard** | Live view of current program input and recent cuts |
-| **Connections** | Status of ATEM and HyperDeck connections |
-| **Event Log** | Scrolling list of all captured events |
-| **EDL Export** | Generate and download EDL files |
-| **Settings** | Runtime configuration adjustments |
 
 ---
 
@@ -249,21 +246,19 @@ Generated EDLs follow the CMX 3600 specification with extended comment lines for
 TITLE: LIVE_PRODUCTION_2026-01-28
 
 001  CAM1     V     C        01:00:00:00 01:00:12:18 01:00:00:00 01:00:12:18
-* FROM CLIP NAME: CAM1_A001_20260128_100000.MOV
-* SOURCE FILE: /Volumes/ISO/CAM1_A001_20260128_100000.MOV
-* ATEM INPUT: 1 (Camera 1 - Wide)
+* FROM CLIP NAME: CAM1_A001_20260128.MOV
+* SOURCE FILE: /Volumes/ISO/CAM1_A001_20260128.MOV
+* ATEM INPUT: 1 (Cam 1 - Centre Wide)
 
 002  CAM2     V     C        01:00:10:05 01:00:25:12 01:00:12:18 01:00:28:00
-* FROM CLIP NAME: CAM2_A001_20260128_100000.MOV
-* SOURCE FILE: /Volumes/ISO/CAM2_A001_20260128_100000.MOV
-* ATEM INPUT: 2 (Camera 2 - Close)
+* FROM CLIP NAME: CAM2_A001_20260128.MOV
+* SOURCE FILE: /Volumes/ISO/CAM2_A001_20260128.MOV
+* ATEM INPUT: 2 (Cam 2 - Centre MCU)
 
 003  CAM1     V     D    025 01:00:23:00 01:00:45:10 01:00:28:00 01:00:50:10
-003  CAM1     V     D    025 01:00:23:00 01:00:45:10 01:00:28:00 01:00:50:10
-* FROM CLIP NAME: CAM1_A001_20260128_100000.MOV
-* SOURCE FILE: /Volumes/ISO/CAM1_A001_20260128_100000.MOV
-* ATEM INPUT: 1 (Camera 1 - Wide)
-* TRANSITION: DISSOLVE 25 frames
+* FROM CLIP NAME: CAM1_A001_20260128.MOV
+* ATEM INPUT: 1 (Cam 1 - Centre Wide)
+* TRANSITION: MIX 25 frames
 ```
 
 ### EDL Field Reference
@@ -272,55 +267,37 @@ TITLE: LIVE_PRODUCTION_2026-01-28
 |-------|-------------|
 | Event Number | Sequential edit number (001-999) |
 | Reel Name | 8-character source identifier from config |
-| Track | V (video), A1-A4 (audio), VA (both) |
-| Transition | C (cut), D (dissolve), W (wipe) |
+| Track | V (video), A (audio), AA (stereo) |
+| Transition | C (cut), D (dissolve/mix), W (wipe) |
 | Source In/Out | Timecode in source recording |
-| Record In/Out | Timecode on output timeline |
-| Comments | Extended metadata for NLE import |
+| Record In/Out | Timecode on master timeline |
 
 ---
 
 ## API Reference
 
-### REST API Endpoints
+### REST Endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `GET /api/status` | GET | Current connection status and statistics |
-| `GET /api/events` | GET | List recent events (paginated) |
-| `GET /api/events/:id` | GET | Single event details |
-| `POST /api/edl/generate` | POST | Generate EDL from current session |
-| `GET /api/edl/download/:filename` | GET | Download generated EDL file |
-| `GET /api/health` | GET | Health check endpoint |
-| `GET /metrics` | GET | Prometheus metrics |
+| `/api/status` | GET | Connection status and session info |
+| `/api/events` | GET | List captured events (paginated) |
+| `/api/config` | GET | Current configuration |
+| `/api/config` | POST | Update configuration |
+| `/api/edl/generate` | POST | Generate EDL from current session |
+| `/api/health` | GET | Health check endpoint |
 
-### WebSocket Events
+### WebSocket
 
 Connect to `ws://localhost:3000/ws` for real-time updates:
 
 ```javascript
-// Event types
+// Message types received
 {
-  "type": "programChange",
-  "timestamp": "2026-01-28T10:00:00.123Z",
-  "data": {
-    "input": 1,
-    "inputName": "Camera 1 - Wide",
-    "previousInput": 2,
-    "transitionType": "cut"
-  }
-}
-
-{
-  "type": "connectionStatus",
-  "timestamp": "2026-01-28T10:00:00.000Z",
-  "data": {
-    "atem": "connected",
-    "hyperdecks": {
-      "ISO-1": "connected",
-      "ISO-2": "connected"
-    }
-  }
+  "type": "initial_state",    // Full state on connect
+  "type": "program_change",   // Programme bus changed
+  "type": "connection_status", // Device connected/disconnected
+  "type": "event"             // New event captured
 }
 ```
 
@@ -332,32 +309,22 @@ Connect to `ws://localhost:3000/ws` for real-time updates:
 
 | Problem | Cause | Solution |
 |---------|-------|----------|
-| ATEM connection fails | Firewall blocking port 9910 | Allow UDP 9910 in/out |
-| HyperDeck shows "disconnected" | Wrong IP or deck powered off | Verify IP and power |
-| Timecode drift | System clock not synced | Enable NTP timecode source |
-| Missing clips in EDL | Input mapping mismatch | Check `inputs.yaml` configuration |
+| ATEM connection fails | Firewall blocking UDP 9910 | Allow UDP 9910 bidirectional |
+| HyperDeck disconnected | Wrong IP or deck powered off | Verify IP and power status |
+| Timecode jumping | System clock adjustment | Use HyperDeck RP-188 source |
+| Missing events | Input not in mapping | Add input to configuration |
 | EDL won't import | Frame rate mismatch | Match EDL frame rate to project |
 
 ### Debug Mode
 
-Enable verbose logging for troubleshooting:
-
 ```bash
-# Environment variable
-DEBUG=atem-edl:* npm start
+# Enable verbose logging
+npm run dev
 
-# Or in config.yaml
+# Or set log level in config
 logging:
   level: "debug"
 ```
-
-### Log Files
-
-| File | Location | Content |
-|------|----------|---------|
-| Application log | `./logs/app.log` | Service activity and errors |
-| Event log | `./logs/events-YYYY-MM-DD.jsonl` | All captured events (for replay) |
-| EDL output | `./output/*.edl` | Generated EDL files |
 
 ---
 
@@ -369,65 +336,31 @@ logging:
 atem-iso-edl-generator/
 ├── src/
 │   ├── adapters/           # Device communication
-│   │   ├── atem/           # ATEM switcher adapter
-│   │   └── hyperdeck/      # HyperDeck adapter
+│   │   ├── atem/           # ATEM switcher protocol
+│   │   └── hyperdeck/      # HyperDeck Ethernet Protocol
 │   ├── core/               # Core business logic
-│   │   ├── events/         # Event types and store
-│   │   ├── timecode/       # Timecode handling
-│   │   └── config/         # Configuration loading
+│   │   ├── config/         # Configuration schema and loading
+│   │   └── events/         # Event types and persistence
+│   ├── providers/          # Pluggable subsystems
+│   │   └── timecode/       # Timecode acquisition chain
 │   ├── generators/         # Output format generators
-│   │   └── edl/            # CMX 3600 EDL generator
+│   │   └── edl/            # CMX 3600 EDL generation
 │   ├── web/                # Web interface
 │   │   ├── api/            # REST API routes
 │   │   ├── ws/             # WebSocket handlers
 │   │   └── static/         # Frontend assets
-│   └── index.ts            # Application entry point
+│   └── app.ts              # Application entry point
 ├── config/                 # Configuration files
-├── docs/                   # Additional documentation
 ├── output/                 # Generated EDL files
-├── logs/                   # Application and event logs
-└── tests/                  # Test suites
+└── logs/                   # Event logs
 ```
 
 ### Running Tests
 
 ```bash
-# Run all tests
-npm test
-
-# Run with coverage
-npm run test:coverage
-
-# Run in watch mode
-npm run test:watch
-```
-
-### Building
-
-```bash
-# Development build
-npm run build
-
-# Production build
-npm run build:prod
-```
-
----
-
-## Contributing
-
-Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md) before submitting pull requests.
-
-### Development Setup
-
-```bash
-# Clone and install
-git clone https://github.com/FiLORUX/atem-iso-edl-generator.git
-cd atem-iso-edl-generator
-npm install
-
-# Run in development mode with hot reload
-npm run dev
+npm test                    # Run all tests
+npm run test:coverage       # With coverage report
+npm run test:watch          # Watch mode
 ```
 
 ---
@@ -440,16 +373,8 @@ MIT License — see [LICENSE](LICENSE) for details.
 
 ## Acknowledgements
 
-- [atem-connection](https://github.com/nrkno/sofie-atem-connection) — ATEM protocol implementation by Sofie TV Automation
-- [Blackmagic Design](https://www.blackmagicdesign.com/) — HyperDeck Ethernet Protocol documentation
-- Broadcast engineering community for feedback and testing
-
----
-
-## Support
-
-- **Issues:** [GitHub Issues](https://github.com/FiLORUX/atem-iso-edl-generator/issues)
-- **Discussions:** [GitHub Discussions](https://github.com/FiLORUX/atem-iso-edl-generator/discussions)
+- [atem-connection](https://github.com/nrkno/sofie-atem-connection) — ATEM protocol implementation by NRK/Sofie
+- [Blackmagic Design](https://www.blackmagicdesign.com/) — HyperDeck Ethernet Protocol specification
 
 ---
 

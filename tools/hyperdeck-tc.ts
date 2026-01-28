@@ -9,10 +9,10 @@
  *   npx tsx tools/hyperdeck-tc.ts <host> [options]
  *
  * Examples:
- *   npx tsx tools/hyperdeck-tc.ts 192.168.1.50
- *   npx tsx tools/hyperdeck-tc.ts 192.168.1.50 --poll
- *   npx tsx tools/hyperdeck-tc.ts 192.168.1.50 --duration 60
- *   npx tsx tools/hyperdeck-tc.ts 192.168.1.50 --fallback
+ *   npx tsx tools/hyperdeck-tc.ts 10.7.77.21
+ *   npx tsx tools/hyperdeck-tc.ts 10.7.77.21 --poll
+ *   npx tsx tools/hyperdeck-tc.ts 10.7.77.21 --duration 60
+ *   npx tsx tools/hyperdeck-tc.ts 10.7.77.21 --fallback
  */
 
 import { parseArgs } from 'node:util';
@@ -48,9 +48,9 @@ Options:
   --help, -h           Show this help
 
 Examples:
-  npx tsx tools/hyperdeck-tc.ts 192.168.1.50
-  npx tsx tools/hyperdeck-tc.ts 192.168.1.50 --poll --poll-rate 25
-  npx tsx tools/hyperdeck-tc.ts 192.168.1.50 --fallback --duration 30
+  npx tsx tools/hyperdeck-tc.ts 10.7.77.21
+  npx tsx tools/hyperdeck-tc.ts 10.7.77.21 --poll --poll-rate 25
+  npx tsx tools/hyperdeck-tc.ts 10.7.77.21 --fallback --duration 30
   npx tsx tools/hyperdeck-tc.ts --system
 `);
 }
