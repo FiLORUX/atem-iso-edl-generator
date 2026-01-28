@@ -53,8 +53,25 @@ interface StatusResponse {
       dropFrame: boolean;
       startTimecode: string;
       source: string;
+      hyperdeck?: {
+        host: string;
+        port: number;
+      };
     };
   };
+  inputs: Array<{
+    inputId: number;
+    name: string;
+    reelName: string;
+  }>;
+  hyperdecks: Array<{
+    name: string;
+    host: string;
+    port: number;
+    inputMapping: number;
+    enabled: boolean;
+    frameOffset: number;
+  }>;
   recording: {
     active: boolean;
     startTime: string | null;
@@ -107,6 +124,7 @@ interface ConfigUpdateRequest {
   atem?: {
     host?: string;
     meIndex?: number;
+    mixEffect?: number;
     frameOffset?: number;
   };
   timecode?: {
@@ -114,11 +132,23 @@ interface ConfigUpdateRequest {
     dropFrame?: boolean;
     startTimecode?: string;
     source?: string;
+    hyperdeck?: {
+      host: string;
+      port?: number;
+    };
   };
   inputs?: Array<{
     inputId: number;
     name: string;
     reelName: string;
+  }>;
+  hyperdecks?: Array<{
+    name: string;
+    host: string;
+    port?: number;
+    inputMapping: number;
+    enabled?: boolean;
+    frameOffset?: number;
   }>;
 }
 
@@ -348,8 +378,15 @@ export function createApiRouter(state: AppState): Router {
         if (body.atem.host !== undefined) {
           state.config.atem.host = body.atem.host;
         }
+        // Accept both meIndex and mixEffect
         if (body.atem.meIndex !== undefined) {
           state.config.atem.mixEffect = body.atem.meIndex;
+        }
+        if (body.atem.mixEffect !== undefined) {
+          state.config.atem.mixEffect = body.atem.mixEffect;
+        }
+        if (body.atem.frameOffset !== undefined) {
+          state.config.atem.frameOffset = body.atem.frameOffset;
         }
       }
 
@@ -368,6 +405,47 @@ export function createApiRouter(state: AppState): Router {
         if (body.timecode.startTimecode !== undefined) {
           state.config.timecode.startTimecode = body.timecode.startTimecode;
         }
+        if (body.timecode.source !== undefined) {
+          if (body.timecode.source === 'system' || body.timecode.source === 'hyperdeck') {
+            state.config.timecode.source = body.timecode.source;
+          }
+        }
+        // Update HyperDeck timecode source config
+        if (body.timecode.hyperdeck !== undefined) {
+          if (!state.config.timecode.hyperdeck) {
+            state.config.timecode.hyperdeck = {
+              host: body.timecode.hyperdeck.host,
+              port: body.timecode.hyperdeck.port ?? 9993,
+              pollRateHz: 10,
+              useNotifications: true,
+              requireSdiSource: true,
+              connectionTimeoutMs: 5000,
+              reconnect: {
+                enabled: true,
+                maxAttempts: 0,
+                initialDelayMs: 1000,
+                maxDelayMs: 30000,
+              },
+            };
+          } else {
+            state.config.timecode.hyperdeck.host = body.timecode.hyperdeck.host;
+            if (body.timecode.hyperdeck.port !== undefined) {
+              state.config.timecode.hyperdeck.port = body.timecode.hyperdeck.port;
+            }
+          }
+        }
+      }
+
+      // Update HyperDeck configurations
+      if (body.hyperdecks && Array.isArray(body.hyperdecks)) {
+        state.config.hyperdecks = body.hyperdecks.map((hd) => ({
+          name: hd.name,
+          host: hd.host,
+          port: hd.port ?? 9993,
+          inputMapping: hd.inputMapping,
+          enabled: hd.enabled ?? true,
+          frameOffset: hd.frameOffset ?? 0,
+        }));
       }
 
       // Update input mappings
@@ -612,8 +690,27 @@ function buildStatusResponse(state: AppState): StatusResponse {
         dropFrame: state.config.edl.dropFrame,
         startTimecode: state.config.timecode.startTimecode ?? '01:00:00:00',
         source: state.config.timecode.source,
+        ...(state.config.timecode.hyperdeck && {
+          hyperdeck: {
+            host: state.config.timecode.hyperdeck.host,
+            port: state.config.timecode.hyperdeck.port ?? 9993,
+          },
+        }),
       },
     },
+    inputs: Object.entries(state.config.inputs).map(([id, config]) => ({
+      inputId: parseInt(id, 10),
+      name: config.name,
+      reelName: config.reelName,
+    })),
+    hyperdecks: state.config.hyperdecks.map((hd) => ({
+      name: hd.name,
+      host: hd.host,
+      port: hd.port,
+      inputMapping: hd.inputMapping,
+      enabled: hd.enabled,
+      frameOffset: hd.frameOffset,
+    })),
     recording: {
       active: state.recording?.active ?? false,
       startTime: state.recording?.startTime?.toISOString() ?? null,
