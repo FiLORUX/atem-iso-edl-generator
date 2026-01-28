@@ -679,6 +679,21 @@ body {
   grid-row: 2 / 4;
 }
 
+/* Dashboard collapses to single column at 768px */
+@media (max-width: 768px) {
+  #tab-dashboard.active {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto;
+  }
+
+  #tab-dashboard .status-panel,
+  #tab-dashboard .program-preview-row,
+  #tab-dashboard .events-panel {
+    grid-column: 1;
+    grid-row: auto;
+  }
+}
+
 #tab-export.active,
 #tab-settings.active {
   grid-template-columns: 1fr;
@@ -1196,11 +1211,12 @@ body {
    ============================================================================ */
 
 @media (max-width: 1024px) {
-  .tab-content.active {
+  /* Keep dashboard two-column until 768px */
+  .tab-content.active:not(#tab-dashboard) {
     grid-template-columns: 1fr;
   }
 
-  .program-preview-row {
+  .tab-content.active:not(#tab-dashboard) .program-preview-row {
     grid-column: 1;
   }
 
