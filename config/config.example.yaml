@@ -129,18 +129,54 @@ edl:
 # Timecode Settings
 # ============================================================================
 timecode:
-  # Timecode source:
-  # - "system"    : Use system clock (simplest, may drift)
-  # - "ntp"       : Sync to NTP server (recommended)
-  # - "hyperdeck" : Use timecode from HyperDeck (requires deck connection)
+  # Primary timecode source:
+  # - "system"    : Use system clock (simplest, may drift over long sessions)
+  # - "hyperdeck" : Use RP-188 embedded in SDI from HyperDeck (recommended for accuracy)
   source: "system"
 
-  # NTP server (only used if source is "ntp")
-  ntpServer: "pool.ntp.org"
+  # Frame rate for timecode — should match edl.frameRate
+  frameRate: 25
 
-  # Starting timecode for new sessions (HH:MM:SS:FF)
+  # Drop-frame timecode (only valid for 29.97 and 59.94 fps)
+  dropFrame: false
+
+  # Starting timecode for system clock mode
   # Set to "auto" to use current time of day
-  startTimecode: "01:00:00:00"
+  # Or specify fixed start: "01:00:00:00"
+  startTimecode: "auto"
+
+  # HyperDeck timecode provider configuration
+  # Required when source is "hyperdeck"
+  # hyperdeck:
+  #   # IP of HyperDeck receiving SDI with embedded RP-188 timecode
+  #   host: "192.168.1.250"
+  #   port: 9993
+  #
+  #   # Use protocol notifications (1.11+) for better performance
+  #   useNotifications: true
+  #
+  #   # Polling rate when notifications unavailable (1-25 Hz)
+  #   pollRateHz: 10
+  #
+  #   # Only accept timecode if source is SDI (not internal generator)
+  #   # Enable for "real TC" with RP-188 embedded timecode
+  #   requireSdiSource: true
+  #
+  #   # Connection and reconnection settings
+  #   connectionTimeoutMs: 5000
+  #   reconnect:
+  #     enabled: true
+  #     maxAttempts: 0        # 0 = infinite
+  #     initialDelayMs: 1000
+  #     maxDelayMs: 30000
+
+  # Fallback settings — switch to system clock if primary fails
+  fallback:
+    enabled: true
+    delayMs: 3000             # Switch after 3 seconds of failure
+
+  # Maximum rate for timecode updates to downstream consumers (Hz)
+  maxEmitRateHz: 25
 
 # ============================================================================
 # Web Interface
