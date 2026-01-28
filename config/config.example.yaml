@@ -97,7 +97,7 @@ inputs:
     filePrefix: "GFX_"
 
   2001:
-    name: "Color Bars"
+    name: "Colour Bars"
     reelName: "BARS"
     filePrefix: null        # No recording for this source
 
