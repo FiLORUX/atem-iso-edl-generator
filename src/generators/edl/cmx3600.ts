@@ -3,9 +3,9 @@
  * Generates industry-standard Edit Decision Lists from switching events.
  */
 
-import type { ProgramChangeEvent, InputSource } from '../../core/events/types.js';
+import type { ProgramChangeEvent } from '../../core/events/types.js';
 import type { Timecode, TimecodeOptions } from '../../core/timecode/timecode.js';
-import { formatTimecode, framesToTimecode, timecodeToFrames } from '../../core/timecode/timecode.js';
+import { formatTimecode, framesToTimecode } from '../../core/timecode/timecode.js';
 
 // ============================================================================
 // Types

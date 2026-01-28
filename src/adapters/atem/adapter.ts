@@ -3,7 +3,8 @@
  * Connects to Blackmagic ATEM switchers and emits switching events.
  */
 
-import { Atem, AtemState } from 'atem-connection';
+import { Atem } from 'atem-connection';
+import type { AtemState } from 'atem-connection';
 import { EventEmitter } from 'node:events';
 import type { AtemConfig, InputConfig } from '../../core/config/schema.js';
 import type {
@@ -129,8 +130,8 @@ export class AtemAdapter extends EventEmitter {
       this.handleDisconnected();
     });
 
-    this.atem.on('error', (error) => {
-      this.handleError(error);
+    this.atem.on('error', (error: string) => {
+      this.handleError(new Error(error));
     });
 
     this.atem.on('stateChanged', (state, pathToChange) => {
@@ -223,10 +224,11 @@ export class AtemAdapter extends EventEmitter {
 
     // Transition state
     if (path.includes('transition')) {
-      if (me.transitionPosition > 0 && !this.inTransition) {
+      const transitionPos = Number(me.transitionPosition);
+      if (transitionPos > 0 && !this.inTransition) {
         this.inTransition = true;
         this.emitTransitionStart(me);
-      } else if (me.transitionPosition === 0 && this.inTransition) {
+      } else if (transitionPos === 0 && this.inTransition) {
         this.inTransition = false;
         this.emitTransitionComplete(me);
       }

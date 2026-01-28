@@ -9,7 +9,7 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
-import pino from 'pino';
+import { pino } from 'pino';
 import { parseConfig, type Config } from './core/config/schema.js';
 import { AtemAdapter } from './adapters/atem/adapter.js';
 import {
