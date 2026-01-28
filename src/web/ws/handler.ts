@@ -265,6 +265,46 @@ export class WebSocketHandler {
       transitionType: event.transitionType,
     }));
 
+    // Build inputs array
+    const inputs = Object.entries(this.state.config.inputs).map(([id, config]) => ({
+      inputId: parseInt(id, 10),
+      name: config.name,
+      reelName: config.reelName,
+    }));
+
+    // Build hyperdecks array
+    const hyperdecks = this.state.config.hyperdecks.map((hd) => ({
+      name: hd.name,
+      host: hd.host,
+      port: hd.port,
+      inputMapping: hd.inputMapping,
+      enabled: hd.enabled,
+      frameOffset: hd.frameOffset,
+    }));
+
+    // Build config with full settings
+    const config: Record<string, unknown> = {
+      atem: {
+        host: this.state.config.atem.host,
+        mixEffect: this.state.config.atem.mixEffect,
+        frameOffset: this.state.config.atem.frameOffset ?? 0,
+      },
+      timecode: {
+        frameRate: this.state.config.edl.frameRate,
+        dropFrame: this.state.config.edl.dropFrame,
+        startTimecode: this.state.config.timecode.startTimecode ?? '01:00:00:00',
+        source: this.state.config.timecode.source,
+      },
+    };
+
+    // Add HyperDeck timecode config if present
+    if (this.state.config.timecode.hyperdeck) {
+      (config.timecode as Record<string, unknown>).hyperdeck = {
+        host: this.state.config.timecode.hyperdeck.host,
+        port: this.state.config.timecode.hyperdeck.port ?? 9993,
+      };
+    }
+
     const message: ServerMessage = {
       type: 'initial_state',
       payload: {
@@ -280,9 +320,12 @@ export class WebSocketHandler {
         },
         eventCount: this.state.events.length,
         recentEvents,
-        config: {
-          frameRate: this.state.config.edl.frameRate,
-          dropFrame: this.state.config.edl.dropFrame,
+        config,
+        inputs,
+        hyperdecks,
+        recording: {
+          active: this.state.recording?.active ?? false,
+          startTime: this.state.recording?.startTime?.toISOString() ?? null,
         },
       },
       timestamp: new Date().toISOString(),
