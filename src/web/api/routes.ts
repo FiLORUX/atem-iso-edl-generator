@@ -1,16 +1,22 @@
 /**
  * API Route Handlers for ATEM ISO EDL Generator.
- * Provides endpoints for status, events, EDL generation, and health checks.
+ * Provides endpoints for status, events, EDL generation, recording control,
+ * configuration, and health checks.
  */
 
 import { Router, type Request, type Response } from 'express';
 import type { AppState } from '../../app.js';
 import { generateEdlFromEvents } from '../../generators/edl/cmx3600.js';
+import { generateDrp, type DrpOptions, type SourceMapping } from '../../generators/drp/resolve.js';
+import { generateFcp7XmlFromEvents, type Fcp7Options } from '../../generators/xml/fcp7.js';
+import { TimelineBuilder } from '../../core/timeline/model.js';
 import { serialiseEvent } from '../../core/events/types.js';
 
 // ============================================================================
 // Types
 // ============================================================================
+
+type ExportFormat = 'cmx3600' | 'resolve' | 'fcpxml';
 
 interface StatusResponse {
   session: {
@@ -40,6 +46,10 @@ interface StatusResponse {
     frameRate: number;
     dropFrame: boolean;
   };
+  recording: {
+    active: boolean;
+    startTime: string | null;
+  };
 }
 
 interface EventsResponse {
@@ -60,12 +70,14 @@ interface EventsResponse {
 interface EdlGenerateRequest {
   title?: string;
   includeComments?: boolean;
+  format?: ExportFormat;
 }
 
 interface EdlGenerateResponse {
-  edl: string;
+  content: string;
   filename: string;
   eventCount: number;
+  format: ExportFormat;
 }
 
 interface HealthResponse {
@@ -82,6 +94,31 @@ interface HealthResponse {
   };
 }
 
+interface ConfigUpdateRequest {
+  atem?: {
+    host?: string;
+    meIndex?: number;
+    frameOffset?: number;
+  };
+  timecode?: {
+    frameRate?: number;
+    dropFrame?: boolean;
+    startTimecode?: string;
+    source?: string;
+  };
+  inputs?: Array<{
+    inputId: number;
+    name: string;
+    reelName: string;
+  }>;
+}
+
+interface RecordingResponse {
+  recording: boolean;
+  startTime: string | null;
+  eventCount: number;
+}
+
 // ============================================================================
 // Router Factory
 // ============================================================================
@@ -92,11 +129,26 @@ interface HealthResponse {
 export function createApiRouter(state: AppState): Router {
   const router = Router();
 
+  // -------------------------------------------------------------------------
+  // Status & Health
+  // -------------------------------------------------------------------------
+
   // GET /api/status - Return connection states and current status
   router.get('/status', (_req: Request, res: Response) => {
     const status = buildStatusResponse(state);
     res.json(status);
   });
+
+  // GET /api/health - Return health check
+  router.get('/health', (_req: Request, res: Response) => {
+    const health = buildHealthResponse(state);
+    const statusCode = health.status === 'healthy' ? 200 : health.status === 'degraded' ? 200 : 503;
+    res.status(statusCode).json(health);
+  });
+
+  // -------------------------------------------------------------------------
+  // Events
+  // -------------------------------------------------------------------------
 
   // GET /api/events - Return recent events
   router.get('/events', (req: Request, res: Response) => {
@@ -109,7 +161,41 @@ export function createApiRouter(state: AppState): Router {
     res.json(events);
   });
 
-  // POST /api/edl/generate - Generate and return EDL content
+  // -------------------------------------------------------------------------
+  // EDL Generation & Export
+  // -------------------------------------------------------------------------
+
+  // GET /api/edl/generate - Generate and return EDL content (supports query params)
+  router.get('/edl/generate', (req: Request, res: Response) => {
+    if (state.events.length === 0) {
+      res.status(400).json({
+        error: 'No events to generate EDL from',
+        eventCount: 0,
+      });
+      return;
+    }
+
+    const format = (req.query.format as ExportFormat) || 'cmx3600';
+    const title = (req.query.title as string) || state.config.edl.defaultTitle;
+    const includeComments = req.query.comments !== 'false';
+    const includeClipNames = req.query.clipNames !== 'false';
+
+    try {
+      const result = generateExport(state, {
+        format,
+        title,
+        includeComments,
+        includeClipNames,
+      });
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({
+        error: error instanceof Error ? error.message : 'Export generation failed',
+      });
+    }
+  });
+
+  // POST /api/edl/generate - Generate and return EDL content (supports body)
   router.post('/edl/generate', (req: Request, res: Response) => {
     const body = req.body as EdlGenerateRequest;
 
@@ -121,8 +207,22 @@ export function createApiRouter(state: AppState): Router {
       return;
     }
 
-    const edlResponse = generateEdlResponse(state, body);
-    res.json(edlResponse);
+    const format = body.format || 'cmx3600';
+    const title = body.title || state.config.edl.defaultTitle;
+
+    try {
+      const result = generateExport(state, {
+        format,
+        title,
+        includeComments: body.includeComments ?? true,
+        includeClipNames: true,
+      });
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({
+        error: error instanceof Error ? error.message : 'Export generation failed',
+      });
+    }
   });
 
   // GET /api/edl/download - Download EDL as file
@@ -135,28 +235,179 @@ export function createApiRouter(state: AppState): Router {
       return;
     }
 
+    const format = (req.query.format as ExportFormat) || 'cmx3600';
     const titleParam = req.query.title as string | undefined;
     const title = titleParam ?? state.config.edl.defaultTitle;
-    const filename = `${title}_${state.sessionId}.edl`;
+    const includeComments = req.query.comments !== 'false';
+    const includeClipNames = req.query.clipNames !== 'false';
 
-    const edl = generateEdlFromEvents(state.events, {
-      title: `${title}_${state.sessionId}`,
-      frameRate: state.config.edl.frameRate,
-      dropFrame: state.config.edl.dropFrame,
-      includeComments: true,
+    try {
+      const result = generateExport(state, {
+        format,
+        title,
+        includeComments,
+        includeClipNames,
+      });
+
+      const contentType = format === 'fcpxml' ? 'application/xml' : 'text/plain';
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
+      res.send(result.content);
+    } catch (error) {
+      res.status(500).json({
+        error: error instanceof Error ? error.message : 'Export generation failed',
+      });
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // Recording Control
+  // -------------------------------------------------------------------------
+
+  // POST /api/recording/start - Start recording
+  router.post('/recording/start', (_req: Request, res: Response) => {
+    if (state.recording?.active) {
+      res.status(400).json({
+        error: 'Recording already active',
+        recording: true,
+        startTime: state.recording.startTime?.toISOString() ?? null,
+      });
+      return;
+    }
+
+    // Initialize recording state if not present
+    if (!state.recording) {
+      (state as AppState & { recording: RecordingState }).recording = {
+        active: false,
+        startTime: null,
+      };
+    }
+
+    state.recording!.active = true;
+    state.recording!.startTime = new Date();
+
+    state.logger.info('Recording started');
+
+    res.json({
+      recording: true,
+      startTime: state.recording!.startTime.toISOString(),
+      eventCount: state.events.length,
+    } satisfies RecordingResponse);
+  });
+
+  // POST /api/recording/stop - Stop recording
+  router.post('/recording/stop', (_req: Request, res: Response) => {
+    if (!state.recording?.active) {
+      res.status(400).json({
+        error: 'Recording not active',
+        recording: false,
+        startTime: null,
+      });
+      return;
+    }
+
+    state.recording.active = false;
+    const startTime = state.recording.startTime;
+    state.recording.startTime = null;
+
+    state.logger.info({ eventCount: state.events.length }, 'Recording stopped');
+
+    res.json({
+      recording: false,
+      startTime: startTime?.toISOString() ?? null,
+      eventCount: state.events.length,
+    } satisfies RecordingResponse);
+  });
+
+  // -------------------------------------------------------------------------
+  // Configuration
+  // -------------------------------------------------------------------------
+
+  // GET /api/config - Get current config (sanitised)
+  router.get('/config', (_req: Request, res: Response) => {
+    const sanitisedConfig = buildConfigResponse(state);
+    res.json(sanitisedConfig);
+  });
+
+  // POST /api/config - Update configuration
+  router.post('/config', (req: Request, res: Response) => {
+    const body = req.body as ConfigUpdateRequest;
+
+    try {
+      // Update ATEM settings (note: requires restart for host change)
+      if (body.atem) {
+        if (body.atem.host !== undefined) {
+          state.config.atem.host = body.atem.host;
+        }
+        if (body.atem.meIndex !== undefined) {
+          state.config.atem.mixEffect = body.atem.meIndex;
+        }
+      }
+
+      // Update EDL/timecode settings
+      if (body.timecode) {
+        if (body.timecode.frameRate !== undefined) {
+          const validRates = [23.976, 24, 25, 29.97, 30, 50, 59.94, 60] as const;
+          const rate = validRates.find((r) => r === body.timecode!.frameRate);
+          if (rate) {
+            state.config.edl.frameRate = rate;
+          }
+        }
+        if (body.timecode.dropFrame !== undefined) {
+          state.config.edl.dropFrame = body.timecode.dropFrame;
+        }
+        if (body.timecode.startTimecode !== undefined) {
+          state.config.timecode.startTimecode = body.timecode.startTimecode;
+        }
+      }
+
+      // Update input mappings
+      if (body.inputs && Array.isArray(body.inputs)) {
+        const newInputs: Record<number, { name: string; reelName: string; filePrefix: string | null }> = {};
+        for (const input of body.inputs) {
+          if (input.inputId && input.name) {
+            newInputs[input.inputId] = {
+              name: input.name,
+              reelName: input.reelName || `IN${input.inputId}`,
+              filePrefix: null,
+            };
+          }
+        }
+        state.config.inputs = newInputs;
+      }
+
+      state.logger.info('Configuration updated via API');
+
+      res.json({
+        success: true,
+        config: buildConfigResponse(state),
+      });
+    } catch (error) {
+      res.status(400).json({
+        error: error instanceof Error ? error.message : 'Configuration update failed',
+      });
+    }
+  });
+
+  // POST /api/config/reset - Reset to defaults
+  router.post('/config/reset', (_req: Request, res: Response) => {
+    // Reset to sensible defaults
+    state.config.edl.frameRate = 25;
+    state.config.edl.dropFrame = false;
+    state.config.timecode.startTimecode = '01:00:00:00';
+    state.config.edl.defaultTitle = 'PROGRAMME';
+
+    state.logger.info('Configuration reset to defaults');
+
+    res.json({
+      success: true,
+      config: buildConfigResponse(state),
     });
-
-    res.setHeader('Content-Type', 'text/plain');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.send(edl);
   });
 
-  // GET /api/health - Return health check
-  router.get('/health', (_req: Request, res: Response) => {
-    const health = buildHealthResponse(state);
-    const statusCode = health.status === 'healthy' ? 200 : health.status === 'degraded' ? 200 : 503;
-    res.status(statusCode).json(health);
-  });
+  // -------------------------------------------------------------------------
+  // Inputs
+  // -------------------------------------------------------------------------
 
   // GET /api/inputs - Return configured inputs
   router.get('/inputs', (_req: Request, res: Response) => {
@@ -169,6 +420,113 @@ export function createApiRouter(state: AppState): Router {
   });
 
   return router;
+}
+
+// ============================================================================
+// Recording State Type
+// ============================================================================
+
+interface RecordingState {
+  active: boolean;
+  startTime: Date | null;
+}
+
+// Extend AppState to include recording
+declare module '../../app.js' {
+  interface AppState {
+    recording?: RecordingState;
+  }
+}
+
+// ============================================================================
+// Export Generation
+// ============================================================================
+
+interface ExportOptions {
+  format: ExportFormat;
+  title: string;
+  includeComments: boolean;
+  includeClipNames: boolean;
+}
+
+/**
+ * Generate export in the specified format.
+ */
+function generateExport(state: AppState, options: ExportOptions): EdlGenerateResponse {
+  const { format, title, includeComments } = options;
+  const fullTitle = `${title}_${state.sessionId}`;
+  const frameRate = state.config.edl.frameRate;
+  const dropFrame = state.config.edl.dropFrame;
+
+  let content: string;
+  let filename: string;
+
+  switch (format) {
+    case 'resolve': {
+      // Build timeline from events
+      const builder = new TimelineBuilder();
+      const timeline = builder.fromProgramChanges(state.events, {
+        frameRate,
+        dropFrame,
+        title: fullTitle,
+      });
+
+      // Build source mappings from config inputs
+      const sources: SourceMapping[] = Object.entries(state.config.inputs).map(
+        ([id, config]) => ({
+          inputId: parseInt(id, 10),
+          name: config.name,
+          volume: 'Macintosh HD',
+          projectPath: 'Recordings',
+          filename: `${config.reelName}.mov`,
+        })
+      );
+
+      const drpOptions: DrpOptions = {
+        sources,
+        videoMode: `${frameRate}p`,
+        defaultVolume: 'Macintosh HD',
+        defaultProjectPath: 'Recordings',
+      };
+
+      content = generateDrp(timeline, drpOptions);
+      filename = `${fullTitle}.drp`;
+      break;
+    }
+
+    case 'fcpxml': {
+      const fcp7Options: Fcp7Options = {
+        title: fullTitle,
+        frameRate,
+        dropFrame,
+        width: 1920,
+        height: 1080,
+      };
+
+      content = generateFcp7XmlFromEvents(state.events, fcp7Options);
+      filename = `${fullTitle}.xml`;
+      break;
+    }
+
+    case 'cmx3600':
+    default: {
+      content = generateEdlFromEvents(state.events, {
+        title: fullTitle,
+        frameRate,
+        dropFrame,
+        includeComments,
+      });
+      filename = `${fullTitle}.edl`;
+      break;
+    }
+  }
+
+  return {
+    content,
+    filename,
+    eventCount: state.events.length,
+    format,
+  };
 }
 
 // ============================================================================
@@ -238,6 +596,10 @@ function buildStatusResponse(state: AppState): StatusResponse {
       frameRate: state.config.edl.frameRate,
       dropFrame: state.config.edl.dropFrame,
     },
+    recording: {
+      active: state.recording?.active ?? false,
+      startTime: state.recording?.startTime?.toISOString() ?? null,
+    },
   };
 }
 
@@ -274,27 +636,6 @@ function buildEventsResponse(state: AppState, limit: number, offset: number): Ev
 }
 
 /**
- * Generate EDL content from events.
- */
-function generateEdlResponse(state: AppState, options: EdlGenerateRequest): EdlGenerateResponse {
-  const title = options.title ?? state.config.edl.defaultTitle;
-  const filename = `${title}_${state.sessionId}.edl`;
-
-  const edl = generateEdlFromEvents(state.events, {
-    title: `${title}_${state.sessionId}`,
-    frameRate: state.config.edl.frameRate,
-    dropFrame: state.config.edl.dropFrame,
-    includeComments: options.includeComments ?? true,
-  });
-
-  return {
-    edl,
-    filename,
-    eventCount: state.events.length,
-  };
-}
-
-/**
  * Build health check response.
  */
 function buildHealthResponse(state: AppState): HealthResponse {
@@ -322,5 +663,37 @@ function buildHealthResponse(state: AppState): HealthResponse {
         count: state.events.length,
       },
     },
+  };
+}
+
+/**
+ * Build sanitised config response for GUI.
+ */
+function buildConfigResponse(state: AppState): {
+  atem: { host: string; meIndex: number };
+  timecode: {
+    frameRate: number;
+    dropFrame: boolean;
+    startTimecode: string;
+    source: string;
+  };
+  inputs: Array<{ inputId: number; name: string; reelName: string }>;
+} {
+  return {
+    atem: {
+      host: state.config.atem.host,
+      meIndex: state.config.atem.mixEffect,
+    },
+    timecode: {
+      frameRate: state.config.edl.frameRate,
+      dropFrame: state.config.edl.dropFrame,
+      startTimecode: state.config.timecode.startTimecode ?? '01:00:00:00',
+      source: state.config.timecode.source,
+    },
+    inputs: Object.entries(state.config.inputs).map(([id, config]) => ({
+      inputId: parseInt(id, 10),
+      name: config.name,
+      reelName: config.reelName,
+    })),
   };
 }

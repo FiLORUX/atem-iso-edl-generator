@@ -33,6 +33,12 @@
     atemConnected: false,
     currentProgram: null,
     currentPreview: null,
+    recording: false,
+    recordingStartTime: null,
+    recordingTimer: null,
+    config: null,
+    inputs: [],
+    recentExports: [],
   };
 
   // ============================================================================
@@ -42,6 +48,10 @@
   const elements = {
     // Session
     sessionId: document.getElementById('session-id'),
+
+    // Recording control
+    recordingToggle: document.getElementById('recording-toggle'),
+    recordingDuration: document.getElementById('recording-duration'),
 
     // Status
     atemStatus: document.getElementById('atem-status'),
@@ -59,11 +69,49 @@
     eventCount: document.getElementById('event-count'),
     eventLog: document.getElementById('event-log'),
 
-    // EDL
-    frameRate: document.getElementById('frame-rate'),
-    dropFrame: document.getElementById('drop-frame'),
-    edlEventCount: document.getElementById('edl-event-count'),
-    generateEdl: document.getElementById('generate-edl'),
+    // Navigation tabs
+    navTabs: document.querySelectorAll('.nav-tab'),
+    tabContents: document.querySelectorAll('.tab-content'),
+
+    // Export tab
+    exportEventCount: document.getElementById('export-event-count'),
+    exportDuration: document.getElementById('export-duration'),
+    exportFrameRate: document.getElementById('export-frame-rate'),
+    exportFormatInputs: document.querySelectorAll('input[name="export-format"]'),
+    exportComments: document.getElementById('export-comments'),
+    exportClipNames: document.getElementById('export-clip-names'),
+    exportTitle: document.getElementById('export-title'),
+    exportDownload: document.getElementById('export-download'),
+    exportPreview: document.getElementById('export-preview'),
+    recentExports: document.getElementById('recent-exports'),
+
+    // Settings - ATEM
+    settingAtemHost: document.getElementById('setting-atem-host'),
+    settingAtemME: document.getElementById('setting-atem-me'),
+    settingFrameOffset: document.getElementById('setting-frame-offset'),
+
+    // Settings - Timecode
+    settingFrameRate: document.getElementById('setting-frame-rate'),
+    settingDropFrame: document.getElementById('setting-drop-frame'),
+    settingStartTC: document.getElementById('setting-start-tc'),
+    settingTCSource: document.getElementById('setting-tc-source'),
+
+    // Settings - Input mapping
+    inputMapping: document.getElementById('input-mapping'),
+    addInputMapping: document.getElementById('add-input-mapping'),
+
+    // Settings - Actions
+    settingsSave: document.getElementById('settings-save'),
+    settingsReset: document.getElementById('settings-reset'),
+    settingsStatus: document.getElementById('settings-status'),
+
+    // Preview modal
+    previewModal: document.getElementById('preview-modal'),
+    previewContent: document.getElementById('preview-content'),
+    previewCopy: document.getElementById('preview-copy'),
+    previewDownload: document.getElementById('preview-download'),
+    modalClose: document.querySelector('.modal__close'),
+    modalBackdrop: document.querySelector('.modal__backdrop'),
 
     // Footer
     clock: document.getElementById('clock'),
@@ -190,6 +238,10 @@
         handleEvent(message.payload, message.timestamp);
         break;
 
+      case 'recording_status':
+        handleRecordingStatus(message.payload);
+        break;
+
       case 'ping':
         sendMessage({ type: 'pong' });
         break;
@@ -239,12 +291,27 @@
     }
 
     // Config
-    elements.frameRate.textContent = `${payload.config.frameRate} fps`;
-    elements.dropFrame.textContent = payload.config.dropFrame ? 'Yes' : 'No';
-    elements.edlEventCount.textContent = payload.eventCount.toString();
+    state.config = payload.config;
+    updateConfigDisplay(payload.config);
+    populateSettings(payload.config);
 
-    // Enable EDL button if we have events
-    elements.generateEdl.disabled = payload.eventCount === 0;
+    // Recording state
+    if (payload.recording) {
+      state.recording = payload.recording.active;
+      if (payload.recording.startTime) {
+        state.recordingStartTime = new Date(payload.recording.startTime);
+      }
+      updateRecordingUI();
+    }
+
+    // Inputs
+    if (payload.inputs) {
+      state.inputs = payload.inputs;
+      renderInputMappings();
+    }
+
+    // Enable export buttons if we have events
+    updateExportButtons();
   }
 
   /**
@@ -266,6 +333,19 @@
   }
 
   /**
+   * Handle recording status update.
+   */
+  function handleRecordingStatus(payload) {
+    state.recording = payload.active;
+    if (payload.startTime) {
+      state.recordingStartTime = new Date(payload.startTime);
+    } else {
+      state.recordingStartTime = null;
+    }
+    updateRecordingUI();
+  }
+
+  /**
    * Handle generic event.
    */
   function handleEvent(payload, timestamp) {
@@ -281,6 +361,7 @@
     if (payload.eventType === 'program_change') {
       state.eventCount++;
       updateEventCount(state.eventCount);
+      updateExportButtons();
     }
 
     // Update preview if it's a preview change
@@ -296,6 +377,608 @@
           ? `${payload.data.transitionType.toUpperCase()} (${frames}f)`
           : payload.data.transitionType.toUpperCase();
     }
+  }
+
+  // ============================================================================
+  // Tab Navigation
+  // ============================================================================
+
+  /**
+   * Switch to a tab.
+   */
+  function switchTab(tabId) {
+    // Update nav tabs
+    elements.navTabs.forEach((tab) => {
+      if (tab.dataset.tab === tabId) {
+        tab.classList.add('active');
+      } else {
+        tab.classList.remove('active');
+      }
+    });
+
+    // Update tab contents
+    elements.tabContents.forEach((content) => {
+      if (content.id === `tab-${tabId}`) {
+        content.classList.add('active');
+      } else {
+        content.classList.remove('active');
+      }
+    });
+
+    // Refresh data when switching to export tab
+    if (tabId === 'export') {
+      fetchStatus();
+    }
+  }
+
+  /**
+   * Set up tab navigation.
+   */
+  function setupTabNavigation() {
+    elements.navTabs.forEach((tab) => {
+      tab.addEventListener('click', () => {
+        switchTab(tab.dataset.tab);
+      });
+    });
+  }
+
+  // ============================================================================
+  // Recording Control
+  // ============================================================================
+
+  /**
+   * Toggle recording state.
+   */
+  async function toggleRecording() {
+    const btn = elements.recordingToggle;
+    btn.disabled = true;
+
+    try {
+      const endpoint = state.recording ? '/api/recording/stop' : '/api/recording/start';
+      const response = await fetch(endpoint, { method: 'POST' });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || `HTTP ${response.status}`);
+      }
+
+      const result = await response.json();
+      state.recording = result.recording;
+
+      if (result.recording) {
+        state.recordingStartTime = new Date();
+      } else {
+        state.recordingStartTime = null;
+      }
+
+      updateRecordingUI();
+    } catch (error) {
+      console.error('[Recording] Toggle failed:', error);
+      alert('Failed to toggle recording: ' + error.message);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  /**
+   * Update recording UI state.
+   */
+  function updateRecordingUI() {
+    const btn = elements.recordingToggle;
+    const textEl = btn.querySelector('.btn__text');
+
+    if (state.recording) {
+      btn.classList.remove('btn--stopped');
+      btn.classList.add('btn--recording-active');
+      textEl.textContent = 'Stop Recording';
+      startRecordingTimer();
+    } else {
+      btn.classList.remove('btn--recording-active');
+      btn.classList.add('btn--stopped');
+      textEl.textContent = 'Start Recording';
+      stopRecordingTimer();
+      elements.recordingDuration.textContent = '00:00:00';
+    }
+  }
+
+  /**
+   * Start the recording timer display.
+   */
+  function startRecordingTimer() {
+    if (state.recordingTimer) {
+      clearInterval(state.recordingTimer);
+    }
+
+    state.recordingTimer = setInterval(() => {
+      if (state.recordingStartTime) {
+        const elapsed = Math.floor((Date.now() - state.recordingStartTime.getTime()) / 1000);
+        elements.recordingDuration.textContent = formatDuration(elapsed);
+      }
+    }, 1000);
+  }
+
+  /**
+   * Stop the recording timer display.
+   */
+  function stopRecordingTimer() {
+    if (state.recordingTimer) {
+      clearInterval(state.recordingTimer);
+      state.recordingTimer = null;
+    }
+  }
+
+  /**
+   * Format duration in HH:MM:SS.
+   */
+  function formatDuration(seconds) {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  }
+
+  // ============================================================================
+  // Export Functions
+  // ============================================================================
+
+  /**
+   * Get selected export format.
+   */
+  function getSelectedFormat() {
+    const selected = document.querySelector('input[name="export-format"]:checked');
+    return selected ? selected.value : 'cmx3600';
+  }
+
+  /**
+   * Get export options.
+   */
+  function getExportOptions() {
+    return {
+      format: getSelectedFormat(),
+      includeComments: elements.exportComments.checked,
+      includeClipNames: elements.exportClipNames.checked,
+      title: elements.exportTitle.value || 'LIVE_PRODUCTION',
+    };
+  }
+
+  /**
+   * Download EDL in selected format.
+   */
+  async function downloadExport() {
+    const btn = elements.exportDownload;
+    const options = getExportOptions();
+
+    btn.disabled = true;
+    btn.querySelector('.btn__icon').textContent = '⏳';
+
+    try {
+      const params = new URLSearchParams({
+        format: options.format,
+        title: options.title,
+        comments: options.includeComments,
+        clipNames: options.includeClipNames,
+      });
+
+      const response = await fetch(`/api/edl/download?${params}`);
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || `HTTP ${response.status}`);
+      }
+
+      // Get filename from Content-Disposition header
+      const disposition = response.headers.get('Content-Disposition');
+      let filename = getDefaultFilename(options.format);
+      if (disposition) {
+        const match = disposition.match(/filename="(.+)"/);
+        if (match) filename = match[1];
+      }
+
+      // Download file
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+
+      console.log('[Export] Downloaded:', filename);
+
+      // Add to recent exports
+      addRecentExport(filename, options.format);
+    } catch (error) {
+      console.error('[Export] Download failed:', error);
+      alert('Failed to export: ' + error.message);
+    } finally {
+      btn.disabled = state.eventCount === 0;
+      btn.querySelector('.btn__icon').textContent = '↓';
+    }
+  }
+
+  /**
+   * Preview EDL content.
+   */
+  async function previewExport() {
+    const btn = elements.exportPreview;
+    const options = getExportOptions();
+
+    btn.disabled = true;
+
+    try {
+      const params = new URLSearchParams({
+        format: options.format,
+        title: options.title,
+        comments: options.includeComments,
+        clipNames: options.includeClipNames,
+      });
+
+      const response = await fetch(`/api/edl/generate?${params}`);
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || `HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+      showPreviewModal(data.content, options.format);
+    } catch (error) {
+      console.error('[Export] Preview failed:', error);
+      alert('Failed to preview: ' + error.message);
+    } finally {
+      btn.disabled = state.eventCount === 0;
+    }
+  }
+
+  /**
+   * Get default filename for format.
+   */
+  function getDefaultFilename(format) {
+    const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
+    switch (format) {
+      case 'resolve':
+        return `output_${timestamp}.drp`;
+      case 'fcpxml':
+        return `output_${timestamp}.xml`;
+      default:
+        return `output_${timestamp}.edl`;
+    }
+  }
+
+  /**
+   * Add export to recent list.
+   */
+  function addRecentExport(filename, format) {
+    const formatLabels = {
+      cmx3600: 'CMX 3600 EDL',
+      resolve: 'DaVinci Resolve',
+      fcpxml: 'FCP7 XML',
+    };
+
+    state.recentExports.unshift({
+      filename,
+      format: formatLabels[format] || format,
+      timestamp: new Date(),
+    });
+
+    // Limit to 10 recent exports
+    if (state.recentExports.length > 10) {
+      state.recentExports.pop();
+    }
+
+    renderRecentExports();
+  }
+
+  /**
+   * Render recent exports list.
+   */
+  function renderRecentExports() {
+    if (state.recentExports.length === 0) {
+      elements.recentExports.innerHTML = '<div class="recent-exports__empty">No exports yet</div>';
+      return;
+    }
+
+    elements.recentExports.innerHTML = state.recentExports
+      .map(
+        (exp) => `
+        <div class="recent-export">
+          <span class="recent-export__name">${escapeHtml(exp.filename)}</span>
+          <span class="recent-export__format">${escapeHtml(exp.format)}</span>
+          <span class="recent-export__time">${formatTime(exp.timestamp)}</span>
+        </div>
+      `
+      )
+      .join('');
+  }
+
+  /**
+   * Update export buttons state.
+   */
+  function updateExportButtons() {
+    const hasEvents = state.eventCount > 0;
+    elements.exportDownload.disabled = !hasEvents;
+    elements.exportPreview.disabled = !hasEvents;
+    if (elements.exportEventCount) {
+      elements.exportEventCount.textContent = state.eventCount.toString();
+    }
+  }
+
+  // ============================================================================
+  // Preview Modal
+  // ============================================================================
+
+  /**
+   * Show preview modal with content.
+   */
+  function showPreviewModal(content, format) {
+    elements.previewContent.textContent = content;
+    elements.previewModal.classList.remove('hidden');
+
+    // Store content for copy/download
+    elements.previewModal.dataset.content = content;
+    elements.previewModal.dataset.format = format;
+  }
+
+  /**
+   * Hide preview modal.
+   */
+  function hidePreviewModal() {
+    elements.previewModal.classList.add('hidden');
+  }
+
+  /**
+   * Copy preview content to clipboard.
+   */
+  async function copyPreviewContent() {
+    const content = elements.previewModal.dataset.content;
+
+    try {
+      await navigator.clipboard.writeText(content);
+      elements.previewCopy.textContent = 'Copied!';
+      setTimeout(() => {
+        elements.previewCopy.textContent = 'Copy to Clipboard';
+      }, 2000);
+    } catch (error) {
+      console.error('[Preview] Copy failed:', error);
+      alert('Failed to copy to clipboard');
+    }
+  }
+
+  /**
+   * Download preview content.
+   */
+  function downloadPreviewContent() {
+    const content = elements.previewModal.dataset.content;
+    const format = elements.previewModal.dataset.format;
+    const filename = getDefaultFilename(format);
+
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+
+    hidePreviewModal();
+  }
+
+  /**
+   * Set up modal event handlers.
+   */
+  function setupModal() {
+    elements.modalClose.addEventListener('click', hidePreviewModal);
+    elements.modalBackdrop.addEventListener('click', hidePreviewModal);
+    elements.previewCopy.addEventListener('click', copyPreviewContent);
+    elements.previewDownload.addEventListener('click', downloadPreviewContent);
+
+    // Close on Escape key
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !elements.previewModal.classList.contains('hidden')) {
+        hidePreviewModal();
+      }
+    });
+  }
+
+  // ============================================================================
+  // Settings
+  // ============================================================================
+
+  /**
+   * Populate settings form from config.
+   */
+  function populateSettings(config) {
+    if (!config) return;
+
+    // ATEM settings
+    if (config.atem) {
+      elements.settingAtemHost.value = config.atem.host || '';
+      elements.settingAtemME.value = config.atem.meIndex || '0';
+      elements.settingFrameOffset.value = config.atem.frameOffset || '0';
+    }
+
+    // Timecode settings
+    if (config.timecode) {
+      elements.settingFrameRate.value = config.timecode.frameRate || '25';
+      elements.settingDropFrame.checked = config.timecode.dropFrame || false;
+      elements.settingStartTC.value = config.timecode.startTimecode || '01:00:00:00';
+      elements.settingTCSource.value = config.timecode.source || 'system';
+    }
+  }
+
+  /**
+   * Collect settings from form.
+   */
+  function collectSettings() {
+    return {
+      atem: {
+        host: elements.settingAtemHost.value,
+        meIndex: parseInt(elements.settingAtemME.value, 10),
+        frameOffset: parseInt(elements.settingFrameOffset.value, 10),
+      },
+      timecode: {
+        frameRate: parseFloat(elements.settingFrameRate.value),
+        dropFrame: elements.settingDropFrame.checked,
+        startTimecode: elements.settingStartTC.value,
+        source: elements.settingTCSource.value,
+      },
+      inputs: collectInputMappings(),
+    };
+  }
+
+  /**
+   * Save settings to server.
+   */
+  async function saveSettings() {
+    const btn = elements.settingsSave;
+    const status = elements.settingsStatus;
+
+    btn.disabled = true;
+    status.textContent = 'Saving...';
+    status.className = 'settings-status';
+
+    try {
+      const settings = collectSettings();
+      const response = await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settings),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || `HTTP ${response.status}`);
+      }
+
+      status.textContent = 'Settings saved';
+      status.classList.add('settings-status--success');
+      setTimeout(() => {
+        status.textContent = '';
+        status.className = 'settings-status';
+      }, 3000);
+    } catch (error) {
+      console.error('[Settings] Save failed:', error);
+      status.textContent = 'Failed to save: ' + error.message;
+      status.classList.add('settings-status--error');
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  /**
+   * Reset settings to defaults.
+   */
+  async function resetSettings() {
+    if (!confirm('Reset all settings to defaults?')) {
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/config/reset', { method: 'POST' });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || `HTTP ${response.status}`);
+      }
+
+      const result = await response.json();
+      populateSettings(result.config);
+      state.config = result.config;
+
+      elements.settingsStatus.textContent = 'Reset to defaults';
+      elements.settingsStatus.classList.add('settings-status--success');
+      setTimeout(() => {
+        elements.settingsStatus.textContent = '';
+        elements.settingsStatus.className = 'settings-status';
+      }, 3000);
+    } catch (error) {
+      console.error('[Settings] Reset failed:', error);
+      alert('Failed to reset settings: ' + error.message);
+    }
+  }
+
+  // ============================================================================
+  // Input Mapping
+  // ============================================================================
+
+  /**
+   * Render input mappings.
+   */
+  function renderInputMappings() {
+    if (state.inputs.length === 0) {
+      elements.inputMapping.innerHTML =
+        '<div class="input-mapping__empty">No inputs configured. Add inputs below.</div>';
+      return;
+    }
+
+    elements.inputMapping.innerHTML = state.inputs
+      .map(
+        (input, index) => `
+        <div class="input-mapping__row" data-index="${index}">
+          <div class="input-mapping__field">
+            <label>Input ID</label>
+            <input type="number" class="input-number" value="${input.inputId || ''}" data-field="inputId" min="1">
+          </div>
+          <div class="input-mapping__field">
+            <label>Name</label>
+            <input type="text" class="input-text" value="${escapeHtml(input.name || '')}" data-field="name">
+          </div>
+          <div class="input-mapping__field">
+            <label>Reel Name</label>
+            <input type="text" class="input-text input-text--short" value="${escapeHtml(input.reelName || '')}" data-field="reelName">
+          </div>
+          <button type="button" class="btn btn--icon btn--danger input-mapping__remove" data-index="${index}">
+            &times;
+          </button>
+        </div>
+      `
+      )
+      .join('');
+
+    // Attach remove handlers
+    elements.inputMapping.querySelectorAll('.input-mapping__remove').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const index = parseInt(btn.dataset.index, 10);
+        state.inputs.splice(index, 1);
+        renderInputMappings();
+      });
+    });
+  }
+
+  /**
+   * Add a new input mapping row.
+   */
+  function addInputMapping() {
+    state.inputs.push({
+      inputId: state.inputs.length + 1,
+      name: `Input ${state.inputs.length + 1}`,
+      reelName: `CAM${state.inputs.length + 1}`,
+    });
+    renderInputMappings();
+  }
+
+  /**
+   * Collect input mappings from form.
+   */
+  function collectInputMappings() {
+    const rows = elements.inputMapping.querySelectorAll('.input-mapping__row');
+    const mappings = [];
+
+    rows.forEach((row) => {
+      const inputId = parseInt(row.querySelector('[data-field="inputId"]').value, 10);
+      const name = row.querySelector('[data-field="name"]').value;
+      const reelName = row.querySelector('[data-field="reelName"]').value;
+
+      if (inputId && name) {
+        mappings.push({ inputId, name, reelName });
+      }
+    });
+
+    return mappings;
   }
 
   // ============================================================================
@@ -371,8 +1054,21 @@
    */
   function updateEventCount(count) {
     elements.eventCount.textContent = `${count} event${count === 1 ? '' : 's'}`;
-    elements.edlEventCount.textContent = count.toString();
-    elements.generateEdl.disabled = count === 0;
+    if (elements.exportEventCount) {
+      elements.exportEventCount.textContent = count.toString();
+    }
+  }
+
+  /**
+   * Update config display elements.
+   */
+  function updateConfigDisplay(config) {
+    if (!config) return;
+
+    // Update export tab info
+    if (elements.exportFrameRate && config.timecode) {
+      elements.exportFrameRate.textContent = `${config.timecode.frameRate} fps`;
+    }
   }
 
   /**
@@ -461,6 +1157,10 @@
     });
   }
 
+  // ============================================================================
+  // Utility Functions
+  // ============================================================================
+
   /**
    * Format uptime in human-readable format.
    */
@@ -476,6 +1176,26 @@
     } else {
       return `${secs}s`;
     }
+  }
+
+  /**
+   * Format timestamp for display.
+   */
+  function formatTime(date) {
+    return new Date(date).toLocaleTimeString('en-GB', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }
+
+  /**
+   * Escape HTML to prevent XSS.
+   */
+  function escapeHtml(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
   }
 
   // ============================================================================
@@ -495,6 +1215,11 @@
       // Update uptime
       elements.uptime.textContent = formatUptime(data.session.uptime);
 
+      // Update export duration
+      if (elements.exportDuration) {
+        elements.exportDuration.textContent = formatUptime(data.session.uptime);
+      }
+
       return data;
     } catch (error) {
       console.error('[API] Failed to fetch status:', error);
@@ -503,45 +1228,18 @@
   }
 
   /**
-   * Generate and download EDL.
+   * Fetch inputs from API.
    */
-  async function downloadEdl() {
+  async function fetchInputs() {
     try {
-      elements.generateEdl.disabled = true;
-      elements.generateEdl.textContent = 'Generating...';
+      const response = await fetch('/api/inputs');
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-      const response = await fetch('/api/edl/download');
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || `HTTP ${response.status}`);
-      }
-
-      // Get filename from Content-Disposition header
-      const disposition = response.headers.get('Content-Disposition');
-      let filename = 'output.edl';
-      if (disposition) {
-        const match = disposition.match(/filename="(.+)"/);
-        if (match) filename = match[1];
-      }
-
-      // Download file
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      window.URL.revokeObjectURL(url);
-
-      console.log('[EDL] Downloaded:', filename);
+      const data = await response.json();
+      state.inputs = data.inputs || [];
+      renderInputMappings();
     } catch (error) {
-      console.error('[EDL] Download failed:', error);
-      alert('Failed to generate EDL: ' + error.message);
-    } finally {
-      elements.generateEdl.disabled = state.eventCount === 0;
-      elements.generateEdl.innerHTML = '<span class="btn__icon">&#8681;</span> Generate EDL';
+      console.error('[API] Failed to fetch inputs:', error);
     }
   }
 
@@ -566,8 +1264,29 @@
     // Connect WebSocket
     connectWebSocket();
 
-    // Set up EDL download button
-    elements.generateEdl.addEventListener('click', downloadEdl);
+    // Set up tab navigation
+    setupTabNavigation();
+
+    // Set up recording control
+    elements.recordingToggle.addEventListener('click', toggleRecording);
+
+    // Set up export buttons
+    elements.exportDownload.addEventListener('click', downloadExport);
+    elements.exportPreview.addEventListener('click', previewExport);
+
+    // Set up modal
+    setupModal();
+
+    // Set up settings
+    elements.settingsSave.addEventListener('click', saveSettings);
+    elements.settingsReset.addEventListener('click', resetSettings);
+    elements.addInputMapping.addEventListener('click', addInputMapping);
+
+    // Fetch inputs for settings
+    fetchInputs();
+
+    // Render empty recent exports
+    renderRecentExports();
 
     console.log('[App] Initialisation complete');
   }
