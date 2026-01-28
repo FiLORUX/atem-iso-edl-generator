@@ -651,6 +651,8 @@ body {
 
 .tab-content {
   display: none;
+  /* Span all columns of parent .main grid */
+  grid-column: 1 / -1;
 }
 
 .tab-content.active {
