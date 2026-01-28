@@ -1,69 +1,89 @@
 # ATEM ISO EDL Generator — Roadmap
 
-> **Goal:** Frame-accurate EDL generation from ATEM switchers with HyperDeck integration.
+> **Goal:** Frame-accurate EDL generation from vision mixers with professional recorder integration.
+> **Vision:** A vendor-agnostic, broadcast-grade equivalent to ATEM Mini ISO for professional environments.
 > **Timeline:** Aggressive — MVP in days, not weeks.
 
 ---
 
-## Phase 0: Foundation (Current)
+## Architecture Principles
 
-**Status:** In Progress
+Based on [docs/ANALYSIS.md](docs/ANALYSIS.md):
+
+1. **Event-driven logging** — Not video analysis
+2. **External ISO recording** — Devices do what they do best
+3. **Single, coherent timecode domain** — LTC/house sync preferred
+4. **Standards-based edit formats** — CMX 3600, FCP7 XML
+5. **Minimal complexity, maximum determinism** — Predictable behaviour
+6. **Low long-term maintenance cost** — No exotic dependencies
+
+---
+
+## Phase 0: Foundation ✅
+
+**Status:** Complete
 
 | Task | Description | Status |
 |------|-------------|--------|
 | Repository setup | Git repo, licence, README | ✅ Done |
-| Project structure | TypeScript scaffold, folders, configs | 🔄 In Progress |
-| Build tooling | ESM, Vitest, ESLint, Pino | 🔄 In Progress |
-| Configuration schema | Zod-validated YAML config | ⏳ Pending |
+| Project structure | TypeScript scaffold, folders, configs | ✅ Done |
+| Build tooling | ESM, Vitest, Pino | ✅ Done |
+| Configuration schema | Zod-validated YAML config | ✅ Done |
+| ATEM adapter | Connect via `atem-connection` | ✅ Done |
+| Event types | TypeScript types with timestamps | ✅ Done |
+| CMX 3600 generator | Basic EDL output | ✅ Done |
+| Timecode utilities | SMPTE with drop-frame | ✅ Done |
 
-**Deliverable:** Buildable TypeScript project with no runtime code.
+**Deliverable:** Buildable TypeScript project with core components.
 
 ---
 
-## Phase 1: MVP — Core Event Capture
+## Phase 1: MVP — Working End-to-End
 
-**Goal:** Capture ATEM program changes with timestamps. No HyperDeck, no web UI.
+**Goal:** Connect to real ATEM, capture real cuts, generate valid EDL.
 
 | Task | Description | Priority |
 |------|-------------|----------|
-| ATEM adapter | Connect via `atem-connection`, subscribe to state changes | P0 |
-| Event model | Define TypeScript types for switching events | P0 |
-| Event store | JSONL append-only log with timestamps | P0 |
-| Basic EDL output | CMX 3600 with hardcoded reel names | P0 |
-| CLI interface | Start service, generate EDL from log | P1 |
+| Timeline model | Internal representation between events and export | P0 |
+| Frame-offset compensation | Per-device latency adjustment | P0 |
+| Event store persistence | JSONL append-only log | P0 |
+| CLI commands | Start, stop, generate EDL | P0 |
+| Integration test | Real ATEM connection test | P0 |
 
 ### Success Criteria
 
 - [ ] Connects to ATEM switcher on startup
-- [ ] Logs all program bus changes with sub-second timestamps
+- [ ] Logs all program bus changes with frame-accurate timestamps
 - [ ] Generates valid CMX 3600 EDL file
 - [ ] EDL imports into DaVinci Resolve without errors
+- [ ] Frame offsets configurable per device
 
 **Deliverable:** Command-line tool that captures ATEM cuts and outputs EDL.
 
 ---
 
-## Phase 2: HyperDeck Integration
+## Phase 2: HyperDeck + FCP7 XML
 
-**Goal:** Query HyperDecks for recording filenames and timecode.
+**Goal:** Query HyperDecks for filenames/timecode. Add FCP7 XML export.
 
 | Task | Description | Priority |
 |------|-------------|----------|
 | HyperDeck adapter | TCP connection to Ethernet Protocol port 9993 | P0 |
 | Clip name query | Fetch active recording filename | P0 |
-| Timecode query | Get current deck timecode | P0 |
+| Timecode query | Get current deck timecode as master source | P0 |
 | Input mapping | Map ATEM inputs to HyperDeck sources | P0 |
-| EDL enhancement | Populate `FROM CLIP NAME` and `SOURCE FILE` comments | P0 |
+| **FCP7 XML export** | DaVinci Resolve / Premiere compatible | P0 |
 | Multi-deck support | Handle 4+ HyperDecks simultaneously | P1 |
 
 ### Success Criteria
 
 - [ ] Connects to multiple HyperDecks on startup
-- [ ] EDL includes correct clip names for each source
+- [ ] EDL/XML includes correct clip names for each source
 - [ ] Source timecode matches HyperDeck recordings
+- [ ] FCP7 XML imports into Resolve with all clips linked
 - [ ] EDL relinks successfully in Premiere Pro
 
-**Deliverable:** EDLs that automatically match ISO recording files.
+**Deliverable:** EDLs and XMLs that automatically match ISO recording files.
 
 ---
 
@@ -75,32 +95,79 @@
 |------|-------------|----------|
 | Express server | Static file serving and API routes | P0 |
 | Status dashboard | Connection status, event count, current input | P0 |
-| Live event feed | WebSocket-powered scrolling event log | P1 |
-| EDL download | Generate and download EDL via browser | P0 |
-| Settings page | Runtime configuration without restart | P2 |
+| Live event feed | WebSocket-powered scrolling event log | P0 |
+| EDL/XML download | Generate and download via browser | P0 |
+| Session management | Named sessions with separate logs | P1 |
+| Settings page | Runtime configuration | P2 |
 | Dark mode | Broadcast-friendly low-light UI | P2 |
 
 ### Success Criteria
 
 - [ ] Web UI accessible at `http://localhost:3000`
-- [ ] Shows real-time connection status
-- [ ] One-click EDL generation and download
+- [ ] Shows real-time connection status for all devices
+- [ ] One-click EDL and FCP7 XML generation
 - [ ] Works on tablet in control room
+- [ ] Multiple sessions manageable
 
 **Deliverable:** Production-ready web interface for operators.
 
 ---
 
-## Phase 4: Production Hardening
+## Phase 4: TSL Universal Mixer Support
+
+**Goal:** Vendor-agnostic cut detection via TSL UMD protocol.
+
+| Task | Description | Priority |
+|------|-------------|----------|
+| TSL UMD v5 adapter | Listen for tally state changes | P0 |
+| TSL UMD v3.1 support | Legacy protocol compatibility | P1 |
+| Program bus detection | Map tally ON AIR to program change | P0 |
+| Source name mapping | TSL display names to reel names | P0 |
+| Multi-mixer support | Simultaneous ATEM + TSL sources | P2 |
+
+### Success Criteria
+
+- [ ] Detects program changes from Ross Carbonite via TSL
+- [ ] Detects program changes from Grass Valley via TSL
+- [ ] Works with any TSL-compliant mixer
+- [ ] Can run alongside ATEM adapter for redundancy
+
+**Deliverable:** Universal vision mixer support via industry-standard protocol.
+
+---
+
+## Phase 5: LTC Timecode Integration
+
+**Goal:** External LTC as primary timecode source for broadcast environments.
+
+| Task | Description | Priority |
+|------|-------------|----------|
+| LTC decoder | Software decode from audio input | P1 |
+| USB LTC reader support | ESE, Ambient, etc. | P2 |
+| HyperDeck as LTC proxy | Use deck timecode when LTC unavailable | P0 |
+| Timecode source priority | LTC > HyperDeck > System | P0 |
+| Drift monitoring | Alert on timecode discontinuity | P1 |
+
+### Success Criteria
+
+- [ ] Locks to external LTC within 1 frame
+- [ ] Falls back gracefully when LTC lost
+- [ ] Logs timecode source changes
+- [ ] Frame-accurate to house sync
+
+**Deliverable:** Broadcast-grade timecode integration.
+
+---
+
+## Phase 6: Production Hardening
 
 **Goal:** Broadcast-grade reliability and observability.
 
 | Task | Description | Priority |
 |------|-------------|----------|
-| Auto-reconnect | Automatic reconnection with exponential backoff | P0 |
+| Auto-reconnect | Exponential backoff for all adapters | P0 |
 | Health checks | Liveness and readiness endpoints | P0 |
 | Prometheus metrics | Connection uptime, event rate, latency | P1 |
-| Structured logging | Pino with correlation IDs | P0 |
 | Graceful shutdown | Complete pending writes before exit | P0 |
 | Docker packaging | Multi-stage build, minimal image | P1 |
 | Systemd service | Linux service unit file | P2 |
@@ -116,16 +183,15 @@
 
 ---
 
-## Phase 5: Extended Device Support
+## Phase 7: Extended Device Support
 
-**Goal:** Support additional recording devices and switchers.
+**Goal:** Support additional recording devices.
 
 | Task | Description | Priority |
 |------|-------------|----------|
 | AJA Ki Pro adapter | REST API integration | P2 |
-| vMix integration | API for MultiCorder recordings | P3 |
-| Ross Video support | DashBoard protocol for Carbonite/Ultrix | P3 |
-| Atomos support | AMP protocol (if documented) | P3 |
+| vMix integration | API for MultiCorder recordings | P2 |
+| Atomos support | LTC trigger-based integration | P3 |
 | NDI input support | Track NDI source names | P3 |
 
 ### Success Criteria
@@ -138,17 +204,17 @@
 
 ---
 
-## Phase 6: Advanced EDL Features
+## Phase 8: Advanced Features
 
-**Goal:** Professional-grade EDL output with transitions.
+**Goal:** Professional-grade output with full transition support.
 
 | Task | Description | Priority |
 |------|-------------|----------|
 | Transition capture | Detect dissolves, wipes with duration | P1 |
 | Multi-M/E support | Monitor multiple mix/effect buses | P2 |
 | Audio follows video | Track AFV switching decisions | P2 |
-| AAF export | Alternative to CMX 3600 for Avid | P3 |
-| FCPXML export | Apple Final Cut Pro format | P3 |
+| AAF export | Avid Media Composer format | P3 |
+| FCPXML export | Apple Final Cut Pro X format | P3 |
 | Resolve project | Native DaVinci Resolve .drp files | P3 |
 
 ### Success Criteria
@@ -161,54 +227,16 @@
 
 ---
 
-## Phase 7: Enterprise Features
-
-**Goal:** Multi-production, multi-user environments.
-
-| Task | Description | Priority |
-|------|-------------|----------|
-| Session management | Named sessions with separate logs | P2 |
-| Multi-instance | Run multiple generators for different switchers | P2 |
-| User authentication | Basic auth for web UI | P3 |
-| Audit logging | Who started/stopped sessions | P3 |
-| REST API auth | API key authentication | P3 |
-| Webhook notifications | Post events to external systems | P3 |
-
-### Success Criteria
-
-- [ ] Manage multiple live productions
-- [ ] Access control for shared installations
-- [ ] Integration with broadcast automation
-
-**Deliverable:** Enterprise-ready deployment options.
-
----
-
 ## Non-Goals (Out of Scope)
-
-These features are explicitly **not** planned:
 
 | Feature | Reason |
 |---------|--------|
 | Video recording | Use HyperDecks — we capture metadata only |
 | Live switching control | Use ATEM Software Control or Companion |
+| SDI capture via DeckLink | High failure impact, high maintenance |
+| ffmpeg-based recording | Outside core competency |
 | Audio mixing | Outside scope — EDL is video-focused |
-| Real-time preview | Use ATEM multiview — we're headless |
 | Cloud deployment | Latency-sensitive — must be on-premise |
-
----
-
-## Technical Debt Allowances
-
-For MVP speed, these shortcuts are acceptable:
-
-| Shortcut | Acceptable Until | Remediation |
-|----------|------------------|-------------|
-| Hardcoded frame rates | Phase 2 | Config-driven frame rate |
-| No input validation | Phase 3 | Zod schemas on all inputs |
-| Console logging | Phase 4 | Pino structured logging |
-| Manual testing only | Phase 4 | Vitest unit and integration tests |
-| Single config file | Phase 5 | Environment variable overrides |
 
 ---
 
@@ -216,13 +244,14 @@ For MVP speed, these shortcuts are acceptable:
 
 | Version | Phase | Description |
 |---------|-------|-------------|
-| v0.1.0 | 1 | MVP — ATEM capture + basic EDL |
-| v0.2.0 | 2 | HyperDeck integration |
+| v0.1.0 | 1 | MVP — ATEM capture + CMX 3600 EDL |
+| v0.2.0 | 2 | HyperDeck integration + FCP7 XML |
 | v0.3.0 | 3 | Web interface |
-| v1.0.0 | 4 | Production-ready release |
-| v1.1.0 | 5 | AJA Ki Pro support |
-| v1.2.0 | 6 | Transition capture |
-| v2.0.0 | 7 | Multi-session enterprise |
+| v0.4.0 | 4 | TSL universal mixer support |
+| v0.5.0 | 5 | LTC timecode integration |
+| v1.0.0 | 6 | Production-ready release |
+| v1.1.0 | 7 | AJA Ki Pro + vMix support |
+| v1.2.0 | 8 | Full transition capture |
 
 ---
 
@@ -239,14 +268,12 @@ For MVP speed, these shortcuts are acceptable:
 | `ws` | WebSocket server | ^8.x |
 | `yaml` | Config parsing | ^2.x |
 
-### Development Dependencies
+### Planned Dependencies
 
-| Package | Purpose | Version |
-|---------|---------|---------|
-| `typescript` | Type safety | ^5.3 |
-| `vitest` | Testing | ^1.x |
-| `eslint` | Linting | ^8.x |
-| `tsx` | Dev runner | ^4.x |
+| Package | Purpose | Phase |
+|---------|---------|-------|
+| `tsl-umd` or custom | TSL protocol | 4 |
+| LTC decoder TBD | Timecode input | 5 |
 
 ---
 
@@ -256,7 +283,8 @@ For MVP speed, these shortcuts are acceptable:
 |------|------------|--------|------------|
 | ATEM protocol changes | Low | High | Pin `atem-connection` version |
 | HyperDeck firmware breaks API | Medium | High | Test against multiple firmware versions |
-| Network latency causes timing drift | Medium | Medium | NTP sync, warn on high latency |
+| Network latency causes timing drift | Medium | Medium | LTC sync, frame-offset compensation |
+| TSL implementation varies by vendor | Medium | Medium | Test with multiple mixers |
 | User misconfigures input mapping | High | Low | Validation warnings in web UI |
 | Event log grows unbounded | Low | Low | Daily rotation, compression |
 
@@ -267,11 +295,29 @@ For MVP speed, these shortcuts are acceptable:
 | Date | Decision | Rationale |
 |------|----------|-----------|
 | 2026-01-28 | Use `atem-connection` not raw protocol | Mature library, maintained by NRK/Sofie |
-| 2026-01-28 | CMX 3600 as primary format | Universal NLE support despite limitations |
+| 2026-01-28 | CMX 3600 as baseline format | Universal NLE support despite limitations |
 | 2026-01-28 | JSONL for event storage | Human-readable, appendable, replayable |
 | 2026-01-28 | Express over Fastify | Simpler, more middleware available |
-| 2026-01-28 | No Companion dependency | Direct ATEM connection for lower latency |
+| 2026-01-28 | No Companion dependency | Direct device connection for lower latency |
+| 2026-01-28 | FCP7 XML as primary rich format | Better than CMX 3600 for multicam, widely supported |
+| 2026-01-28 | TSL UMD for vendor-agnostic support | Industry standard, enables Ross/GV/Sony |
+| 2026-01-28 | Internal Timeline Model | Decouples events from export format specifics |
+| 2026-01-28 | LTC as preferred timecode source | Broadcast standard, frame-accurate |
+| 2026-01-28 | Frame-offset compensation required | Real-world devices have measurable latency |
 
 ---
 
-*Roadmap is a living document. Priorities may shift based on user feedback.*
+## Prior Art & References
+
+| Project | Type | Notes |
+|---------|------|-------|
+| ATEM Logger (Télio Tortay) | Open source | Similar concept |
+| Multicam Logger (Franz Wegner) | Open source | Node.js, hard cuts only |
+| ATEM Exporter (Swift) | Open source | FCP-specific |
+| Softron Multicam Logger | Commercial | Feature reference |
+| Ross Carbonite LiveEDL | Built-in | Ross native solution |
+| TSL UMD Protocol v3.1/v5 | Standard | Tally/UMD specification |
+
+---
+
+*Roadmap updated 2026-01-28 based on docs/ANALYSIS.md insights.*

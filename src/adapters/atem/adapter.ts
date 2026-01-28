@@ -15,8 +15,10 @@ import type {
   ConnectionEvent,
   InputSource,
   TransitionType,
+  Timestamp,
 } from '../../core/events/types.js';
 import { createTimestamp } from '../../core/events/types.js';
+import { applyFrameOffset } from '../../core/timecode/offset.js';
 
 // ============================================================================
 // Types
@@ -26,6 +28,8 @@ export interface AtemAdapterOptions {
   config: AtemConfig;
   inputs: Record<number, InputConfig>;
   mixEffect?: number;
+  /** Frame rate for offset calculations (required if frameOffset is non-zero) */
+  frameRate?: number;
 }
 
 export interface AtemAdapterEvents {
@@ -46,6 +50,8 @@ export class AtemAdapter extends EventEmitter {
   private readonly config: AtemConfig;
   private readonly inputs: Record<number, InputConfig>;
   private readonly mixEffect: number;
+  private readonly frameRate: number;
+  private readonly frameOffset: number;
 
   private connected = false;
   private lastProgramInput: number | null = null;
@@ -59,6 +65,8 @@ export class AtemAdapter extends EventEmitter {
     this.config = options.config;
     this.inputs = options.inputs;
     this.mixEffect = options.mixEffect ?? options.config.mixEffect;
+    this.frameRate = options.frameRate ?? 25; // Default to 25fps (PAL)
+    this.frameOffset = options.config.frameOffset ?? 0;
     this.atem = new Atem();
 
     this.setupEventHandlers();
@@ -245,7 +253,7 @@ export class AtemAdapter extends EventEmitter {
 
     const event: ProgramChangeEvent = {
       type: 'program_change',
-      timestamp: createTimestamp(),
+      timestamp: this.createOffsetTimestamp(),
       mixEffect: this.mixEffect,
       input: this.buildInputSource(inputId),
       previousInput: this.lastProgramInput !== null
@@ -261,7 +269,7 @@ export class AtemAdapter extends EventEmitter {
   private emitPreviewChange(inputId: number): void {
     const event: PreviewChangeEvent = {
       type: 'preview_change',
-      timestamp: createTimestamp(),
+      timestamp: this.createOffsetTimestamp(),
       mixEffect: this.mixEffect,
       input: this.buildInputSource(inputId),
       previousInput: this.lastPreviewInput !== null
@@ -278,7 +286,7 @@ export class AtemAdapter extends EventEmitter {
 
     const event: TransitionStartEvent = {
       type: 'transition_start',
-      timestamp: createTimestamp(),
+      timestamp: this.createOffsetTimestamp(),
       mixEffect: this.mixEffect,
       transitionType,
       transitionFrames,
@@ -295,7 +303,7 @@ export class AtemAdapter extends EventEmitter {
 
     const event: TransitionCompleteEvent = {
       type: 'transition_complete',
-      timestamp: createTimestamp(),
+      timestamp: this.createOffsetTimestamp(),
       mixEffect: this.mixEffect,
       transitionType,
       transitionFrames,
@@ -308,6 +316,21 @@ export class AtemAdapter extends EventEmitter {
   // --------------------------------------------------------------------------
   // Helpers
   // --------------------------------------------------------------------------
+
+  /**
+   * Create a timestamp with frame offset compensation applied.
+   * The offset compensates for ATEM processing latency to ensure
+   * EDL cut points align with actual video content.
+   */
+  private createOffsetTimestamp(): Timestamp {
+    const baseTimestamp = createTimestamp();
+
+    if (this.frameOffset === 0) {
+      return baseTimestamp;
+    }
+
+    return applyFrameOffset(baseTimestamp, this.frameOffset, this.frameRate);
+  }
 
   private buildInputSource(inputId: number): InputSource {
     const config = this.inputs[inputId];

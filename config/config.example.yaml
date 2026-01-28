@@ -13,6 +13,13 @@ atem:
   # Constellation series may have multiple
   mixEffect: 0
 
+  # Frame offset for timestamp compensation
+  # Positive values: delay timestamps (compensate for ATEM processing latency)
+  # Negative values: advance timestamps
+  # Typical ATEM processing delay is 1-2 frames
+  # Set to 0 to disable compensation
+  frameOffset: 1
+
   # Reconnection settings
   reconnect:
     enabled: true
@@ -32,24 +39,30 @@ hyperdecks:
     port: 9993              # Default HyperDeck port
     inputMapping: 1         # ATEM input number this records
     enabled: true
+    # Per-deck frame offset for recording delay compensation
+    # Use this to fine-tune sync for each deck independently
+    frameOffset: 0
 
   - name: "ISO-2"
     host: "192.168.1.242"
     port: 9993
     inputMapping: 2
     enabled: true
+    frameOffset: 0
 
   - name: "ISO-3"
     host: "192.168.1.243"
     port: 9993
     inputMapping: 3
     enabled: true
+    frameOffset: 0
 
   - name: "ISO-4"
     host: "192.168.1.244"
     port: 9993
     inputMapping: 4
     enabled: true
+    frameOffset: 0
 
 # ============================================================================
 # Input Configuration

@@ -19,6 +19,13 @@ const ReconnectConfigSchema = z.object({
 const AtemConfigSchema = z.object({
   host: z.string().ip({ version: 'v4' }),
   mixEffect: z.number().int().min(0).max(3).default(0),
+  /**
+   * Frame offset for timestamp compensation.
+   * Positive values delay timestamps (compensate for ATEM processing latency).
+   * Negative values advance timestamps.
+   * Typical ATEM processing delay is 1-2 frames.
+   */
+  frameOffset: z.number().int().default(0),
   reconnect: ReconnectConfigSchema.default({}),
 });
 
@@ -28,6 +35,12 @@ const HyperDeckConfigSchema = z.object({
   port: z.number().int().min(1).max(65535).default(9993),
   inputMapping: z.number().int().positive(),
   enabled: z.boolean().default(true),
+  /**
+   * Frame offset for this specific HyperDeck.
+   * Compensates for recording delay differences between decks.
+   * Positive values delay timestamps, negative values advance.
+   */
+  frameOffset: z.number().int().default(0),
 });
 
 const InputConfigSchema = z.object({

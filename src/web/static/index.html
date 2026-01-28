@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ATEM ISO EDL Generator</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <h1 class="header__title">ATEM ISO EDL Generator</h1>
+      <div class="header__session">
+        <span class="session-label">Session:</span>
+        <span id="session-id" class="session-id">--</span>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main">
+      <!-- Status Panel -->
+      <section class="panel status-panel">
+        <h2 class="panel__title">Connection Status</h2>
+        <div class="status-grid">
+          <div class="status-item">
+            <span class="status-label">ATEM</span>
+            <span id="atem-status" class="status-indicator status-indicator--disconnected">
+              <span class="status-dot"></span>
+              <span class="status-text">Disconnected</span>
+            </span>
+          </div>
+          <div class="status-item">
+            <span class="status-label">Host</span>
+            <span id="atem-host" class="status-value">--</span>
+          </div>
+          <div class="status-item">
+            <span class="status-label">WebSocket</span>
+            <span id="ws-status" class="status-indicator status-indicator--disconnected">
+              <span class="status-dot"></span>
+              <span class="status-text">Disconnected</span>
+            </span>
+          </div>
+          <div class="status-item">
+            <span class="status-label">Uptime</span>
+            <span id="uptime" class="status-value">--</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Program Monitor -->
+      <section class="panel program-panel">
+        <h2 class="panel__title">Program Output</h2>
+        <div class="program-display">
+          <div id="program-input" class="program-input">
+            <span class="program-input__id">--</span>
+            <span class="program-input__name">No Signal</span>
+          </div>
+          <div class="program-meta">
+            <div class="meta-item">
+              <span class="meta-label">Reel</span>
+              <span id="program-reel" class="meta-value">--</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Last Transition</span>
+              <span id="last-transition" class="meta-value">--</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Preview -->
+      <section class="panel preview-panel">
+        <h2 class="panel__title">Preview</h2>
+        <div id="preview-input" class="preview-input">
+          <span class="preview-input__id">--</span>
+          <span class="preview-input__name">No Signal</span>
+        </div>
+      </section>
+
+      <!-- Events Panel -->
+      <section class="panel events-panel">
+        <h2 class="panel__title">
+          Event Log
+          <span id="event-count" class="event-count">0 events</span>
+        </h2>
+        <div id="event-log" class="event-log">
+          <div class="event-log__empty">Waiting for events...</div>
+        </div>
+      </section>
+
+      <!-- EDL Controls -->
+      <section class="panel edl-panel">
+        <h2 class="panel__title">EDL Generation</h2>
+        <div class="edl-controls">
+          <div class="edl-info">
+            <div class="edl-info__item">
+              <span class="edl-info__label">Frame Rate</span>
+              <span id="frame-rate" class="edl-info__value">--</span>
+            </div>
+            <div class="edl-info__item">
+              <span class="edl-info__label">Drop Frame</span>
+              <span id="drop-frame" class="edl-info__value">--</span>
+            </div>
+            <div class="edl-info__item">
+              <span class="edl-info__label">Events</span>
+              <span id="edl-event-count" class="edl-info__value">0</span>
+            </div>
+          </div>
+          <button id="generate-edl" class="btn btn--primary" disabled>
+            <span class="btn__icon">&#8681;</span>
+            Generate EDL
+          </button>
+        </div>
+      </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <span class="footer__version">ATEM ISO EDL Generator v0.1.0</span>
+      <span class="footer__status">
+        <span id="clock" class="clock">--:--:--</span>
+      </span>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
