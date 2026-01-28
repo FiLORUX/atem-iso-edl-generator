@@ -974,6 +974,33 @@ body {
   padding: var(--spacing-lg);
 }
 
+.recent-export {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-sm);
+  background-color: var(--colour-background);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+
+.recent-export__name {
+  color: var(--colour-text-primary);
+  font-weight: 500;
+}
+
+.recent-export__format {
+  color: var(--colour-text-secondary);
+  text-transform: uppercase;
+  font-size: 0.7rem;
+}
+
+.recent-export__time {
+  color: var(--colour-text-muted);
+  font-size: 0.7rem;
+}
+
 .export-item {
   display: flex;
   justify-content: space-between;

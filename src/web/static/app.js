@@ -899,7 +899,7 @@
       }
 
       status.textContent = 'Settings saved';
-      status.classList.add('settings-status--success');
+      status.classList.add('success');
       setTimeout(() => {
         status.textContent = '';
         status.className = 'settings-status';
@@ -907,7 +907,7 @@
     } catch (error) {
       console.error('[Settings] Save failed:', error);
       status.textContent = 'Failed to save: ' + error.message;
-      status.classList.add('settings-status--error');
+      status.classList.add('error');
     } finally {
       btn.disabled = false;
     }
@@ -934,7 +934,7 @@
       state.config = result.config;
 
       elements.settingsStatus.textContent = 'Reset to defaults';
-      elements.settingsStatus.classList.add('settings-status--success');
+      elements.settingsStatus.classList.add('success');
       setTimeout(() => {
         elements.settingsStatus.textContent = '';
         elements.settingsStatus.className = 'settings-status';
@@ -1334,7 +1334,7 @@
 
       const data = await response.json();
       state.inputs = data.inputs || [];
-      renderInputMappings();
+      renderSources();
     } catch (error) {
       console.error('[API] Failed to fetch inputs:', error);
     }

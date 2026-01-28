@@ -53,7 +53,7 @@ Based on [docs/ANALYSIS.md](docs/ANALYSIS.md):
 ### Success Criteria
 
 - [ ] Connects to ATEM switcher on startup
-- [ ] Logs all program bus changes with frame-accurate timestamps
+- [ ] Logs all programme bus changes with frame-accurate timestamps
 - [ ] Generates valid CMX 3600 EDL file
 - [ ] EDL imports into DaVinci Resolve without errors
 - [ ] Frame offsets configurable per device
@@ -121,14 +121,14 @@ Based on [docs/ANALYSIS.md](docs/ANALYSIS.md):
 |------|-------------|----------|
 | TSL UMD v5 adapter | Listen for tally state changes | P0 |
 | TSL UMD v3.1 support | Legacy protocol compatibility | P1 |
-| Program bus detection | Map tally ON AIR to program change | P0 |
+| Programme bus detection | Map tally ON AIR to programme change | P0 |
 | Source name mapping | TSL display names to reel names | P0 |
 | Multi-mixer support | Simultaneous ATEM + TSL sources | P2 |
 
 ### Success Criteria
 
-- [ ] Detects program changes from Ross Carbonite via TSL
-- [ ] Detects program changes from Grass Valley via TSL
+- [ ] Detects programme changes from Ross Carbonite via TSL
+- [ ] Detects programme changes from Grass Valley via TSL
 - [ ] Works with any TSL-compliant mixer
 - [ ] Can run alongside ATEM adapter for redundancy
 

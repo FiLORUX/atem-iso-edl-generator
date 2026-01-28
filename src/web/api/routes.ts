@@ -314,7 +314,7 @@ export function createApiRouter(state: AppState): Router {
       return;
     }
 
-    // Initialize recording state if not present
+    // Initialise recording state if not present
     if (!state.recording) {
       (state as AppState & { recording: RecordingState }).recording = {
         active: false,
