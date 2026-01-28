@@ -796,9 +796,12 @@
 
     // ATEM settings
     if (config.atem) {
-      elements.settingAtemHost.value = config.atem.host || '';
-      elements.settingAtemME.value = config.atem.meIndex || '0';
-      elements.settingFrameOffset.value = config.atem.frameOffset || '0';
+      elements.settingAtemHost.value = config.atem.host || '10.7.77.7';
+      elements.settingAtemME.value = config.atem.mixEffect ?? '0';
+      elements.settingFrameOffset.value = config.atem.frameOffset ?? '0';
+    } else {
+      // Default values when no config exists
+      elements.settingAtemHost.value = '10.7.77.7';
     }
 
     // Timecode settings
@@ -816,8 +819,8 @@
   function collectSettings() {
     return {
       atem: {
-        host: elements.settingAtemHost.value,
-        meIndex: parseInt(elements.settingAtemME.value, 10),
+        host: elements.settingAtemHost.value || '10.7.77.7',
+        mixEffect: parseInt(elements.settingAtemME.value, 10),
         frameOffset: parseInt(elements.settingFrameOffset.value, 10),
       },
       timecode: {

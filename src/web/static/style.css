@@ -696,12 +696,56 @@ body {
   }
 }
 
+/* Export and Settings: two-column layouts */
 #tab-export.active,
 #tab-settings.active {
-  grid-template-columns: 1fr;
+  grid-template-columns: 1fr 1fr;
+}
+
+/* Export columns */
+.export-column--left {
+  grid-column: 1;
+}
+
+.export-column--right {
+  grid-column: 2;
+}
+
+/* Settings columns */
+.settings-column--left {
+  grid-column: 1;
+}
+
+.settings-column--right {
+  grid-column: 2;
   display: flex;
   flex-direction: column;
   gap: var(--spacing-md);
+}
+
+/* Make panels inside columns fill height */
+.export-column .panel,
+.settings-column .panel {
+  height: fit-content;
+}
+
+/* Recent exports panel should stretch */
+.recent-exports-panel {
+  flex: 1;
+}
+
+@media (max-width: 900px) {
+  #tab-export.active,
+  #tab-settings.active {
+    grid-template-columns: 1fr;
+  }
+
+  .export-column--left,
+  .export-column--right,
+  .settings-column--left,
+  .settings-column--right {
+    grid-column: 1;
+  }
 }
 
 .program-preview-row {
