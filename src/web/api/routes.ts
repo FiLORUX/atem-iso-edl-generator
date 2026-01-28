@@ -506,6 +506,133 @@ export function createApiRouter(state: AppState): Router {
     res.json({ inputs });
   });
 
+  // -------------------------------------------------------------------------
+  // HyperDeck Control
+  // -------------------------------------------------------------------------
+
+  // POST /api/hyperdeck/record - Start/stop recording on a HyperDeck
+  router.post('/hyperdeck/record', async (req: Request, res: Response) => {
+    const { host, port = 9993, action } = req.body as {
+      host: string;
+      port?: number;
+      action: 'start' | 'stop';
+    };
+
+    if (!host) {
+      res.status(400).json({ error: 'Missing host parameter' });
+      return;
+    }
+
+    if (!action || !['start', 'stop'].includes(action)) {
+      res.status(400).json({ error: 'Invalid action, must be "start" or "stop"' });
+      return;
+    }
+
+    try {
+      const { Hyperdeck, Commands } = await import('hyperdeck-connection');
+      const hyperdeck = new Hyperdeck({ debug: false });
+
+      // Connect using promise wrapper
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('Connection timeout')), 5000);
+        hyperdeck.once('connected', () => {
+          clearTimeout(timeout);
+          resolve();
+        });
+        hyperdeck.once('error', (msg, err) => {
+          clearTimeout(timeout);
+          reject(err || new Error(String(msg)));
+        });
+        hyperdeck.connect(host, port);
+      });
+
+      // Send record or stop command
+      if (action === 'start') {
+        await hyperdeck.sendCommand(new Commands.RecordCommand());
+        state.logger.info({ host, action }, 'HyperDeck recording started');
+      } else {
+        await hyperdeck.sendCommand(new Commands.StopCommand());
+        state.logger.info({ host, action }, 'HyperDeck recording stopped');
+      }
+
+      // Disconnect
+      hyperdeck.disconnect();
+
+      res.json({
+        success: true,
+        host,
+        action,
+      });
+    } catch (error) {
+      state.logger.error({ host, action, error }, 'HyperDeck control failed');
+      res.status(500).json({
+        error: error instanceof Error ? error.message : 'HyperDeck control failed',
+        host,
+        action,
+      });
+    }
+  });
+
+  // GET /api/timecode - Get current timecode from HyperDeck
+  router.get('/timecode', async (req: Request, res: Response) => {
+    const host = req.query.host as string | undefined;
+    const port = parseInt(req.query.port as string || '9993', 10);
+
+    if (!host) {
+      // Return system timecode if no host specified
+      const now = new Date();
+      const frameRate = state.config.edl.frameRate;
+      const h = now.getHours().toString().padStart(2, '0');
+      const m = now.getMinutes().toString().padStart(2, '0');
+      const s = now.getSeconds().toString().padStart(2, '0');
+      const f = Math.floor((now.getMilliseconds() / 1000) * frameRate).toString().padStart(2, '0');
+      res.json({
+        timecode: `${h}:${m}:${s}:${f}`,
+        source: 'system',
+      });
+      return;
+    }
+
+    try {
+      const { Hyperdeck, Commands } = await import('hyperdeck-connection');
+      const hyperdeck = new Hyperdeck({ debug: false });
+
+      // Connect using promise wrapper
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('Connection timeout')), 5000);
+        hyperdeck.once('connected', () => {
+          clearTimeout(timeout);
+          resolve();
+        });
+        hyperdeck.once('error', (msg, err) => {
+          clearTimeout(timeout);
+          reject(err || new Error(String(msg)));
+        });
+        hyperdeck.connect(host, port);
+      });
+
+      // Get transport info
+      const info = await hyperdeck.sendCommand(new Commands.TransportInfoCommand());
+
+      // Disconnect
+      hyperdeck.disconnect();
+
+      res.json({
+        timecode: info.displayTimecode || info.timecode || '--:--:--:--',
+        source: 'hyperdeck',
+        host,
+        transport: info.status,
+      });
+    } catch (error) {
+      state.logger.warn({ host, error }, 'Failed to get HyperDeck timecode');
+      res.status(500).json({
+        error: error instanceof Error ? error.message : 'Failed to get timecode',
+        timecode: '--:--:--:--',
+        source: 'error',
+      });
+    }
+  });
+
   return router;
 }
 

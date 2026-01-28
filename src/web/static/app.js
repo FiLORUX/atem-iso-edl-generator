@@ -17,6 +17,9 @@
     maxEventLogEntries: 100,
     clockUpdateInterval: 1000,
     statusPollInterval: 30000,
+    timecodePollInterval: 200,
+    autoSaveDebounceMs: 1000,
+    localStorageKey: 'atem-iso-edl-generator',
   };
 
   // ============================================================================
@@ -40,6 +43,17 @@
     inputs: [],
     hyperdecks: [],
     recentExports: [],
+    // Source control states (persisted)
+    sourceStates: new Map(), // inputId -> { tcMaster, armed, includeInEdl }
+    tcMasterInputId: null,   // Which source is TC master (only one)
+    useTableTcMaster: false, // Use TC master from table vs manual entry
+    activeTab: 'dashboard',  // Current tab (persisted)
+    // Timecode display
+    currentTimecode: null,
+    timecodeSource: 'system',
+    timecodePollTimer: null,
+    // Auto-save debounce
+    autoSaveTimer: null,
   };
 
   // ============================================================================
@@ -105,6 +119,10 @@
     hyperdeckTcSettings: document.getElementById('hyperdeck-tc-settings'),
     settingTcHyperdeckHost: document.getElementById('setting-tc-hyperdeck-host'),
     settingTcHyperdeckPort: document.getElementById('setting-tc-hyperdeck-port'),
+    settingTcUseTableMaster: document.getElementById('setting-tc-use-table-master'),
+    hyperdeckTcManual: document.getElementById('hyperdeck-tc-manual'),
+    hyperdeckTcFromTable: document.getElementById('hyperdeck-tc-from-table'),
+    tcMasterName: document.getElementById('tc-master-name'),
 
     // Settings - Actions
     settingsSave: document.getElementById('settings-save'),
@@ -121,6 +139,8 @@
 
     // Footer
     clock: document.getElementById('clock'),
+    timecodeDisplay: document.getElementById('timecode-display'),
+    timecodeSourceIndicator: document.getElementById('timecode-source-indicator'),
   };
 
   // ============================================================================
@@ -414,9 +434,18 @@
       }
     });
 
+    // Persist active tab
+    state.activeTab = tabId;
+    scheduleAutoSave();
+
     // Refresh data when switching to export tab
     if (tabId === 'export') {
       fetchStatus();
+    }
+
+    // Update TC source UI when switching to settings
+    if (tabId === 'settings') {
+      updateTcSourceUI();
     }
   }
 
@@ -442,8 +471,15 @@
     const btn = elements.recordingToggle;
     btn.disabled = true;
 
+    const wasRecording = state.recording;
+
     try {
-      const endpoint = state.recording ? '/api/recording/stop' : '/api/recording/start';
+      // Start/stop armed HyperDecks first
+      if (!wasRecording) {
+        await startArmedHyperDecks();
+      }
+
+      const endpoint = wasRecording ? '/api/recording/stop' : '/api/recording/start';
       const response = await fetch(endpoint, { method: 'POST' });
 
       if (!response.ok) {
@@ -458,12 +494,22 @@
         state.recordingStartTime = new Date();
       } else {
         state.recordingStartTime = null;
+        // Stop armed HyperDecks after stopping session recording
+        await stopArmedHyperDecks();
       }
 
       updateRecordingUI();
     } catch (error) {
       console.error('[Recording] Toggle failed:', error);
       alert('Failed to toggle recording: ' + error.message);
+      // Try to stop HyperDecks if we started them but the main recording failed
+      if (!wasRecording) {
+        try {
+          await stopArmedHyperDecks();
+        } catch (e) {
+          console.error('[Recording] Failed to stop HyperDecks after error:', e);
+        }
+      }
     } finally {
       btn.disabled = false;
     }
@@ -826,8 +872,8 @@
         elements.settingTcHyperdeckPort.value = config.timecode.hyperdeck.port || 9993;
       }
 
-      // Show/hide hyperdeck TC settings based on source
-      updateTcSourceVisibility();
+      // Update TC source UI (visibility and state)
+      updateTcSourceUI();
     }
   }
 
@@ -960,16 +1006,37 @@
       hyperdeckMap.set(hd.inputMapping, hd);
     }
 
-    // Merge inputs with hyperdecks
+    // Merge inputs with hyperdecks and source states
     return state.inputs.map((input) => {
       const hd = hyperdeckMap.get(input.inputId);
+      const sourceState = state.sourceStates.get(input.inputId) || {
+        armed: true,
+        includeInEdl: true,
+      };
       return {
         inputId: input.inputId,
         name: input.name,
         reelName: input.reelName,
         hyperdeckHost: hd?.host || '',
+        isTcMaster: state.tcMasterInputId === input.inputId,
+        armed: sourceState.armed,
+        includeInEdl: sourceState.includeInEdl,
+        hasHyperdeck: !!hd?.host,
       };
     });
+  }
+
+  /**
+   * Get or create source state for an input.
+   */
+  function getSourceState(inputId) {
+    if (!state.sourceStates.has(inputId)) {
+      state.sourceStates.set(inputId, {
+        armed: true,
+        includeInEdl: true,
+      });
+    }
+    return state.sourceStates.get(inputId);
   }
 
   /**
@@ -981,13 +1048,14 @@
     if (sources.length === 0) {
       elements.sourceList.innerHTML =
         '<div class="source-table__empty">No sources configured. Add sources below.</div>';
+      updateTcMasterDisplay();
       return;
     }
 
     elements.sourceList.innerHTML = sources
       .map(
         (src, index) => `
-        <div class="source-row" data-index="${index}">
+        <div class="source-row${src.isTcMaster ? ' source-row--tc-master' : ''}" data-index="${index}" data-input-id="${src.inputId}">
           <div class="source-col source-col--id">
             <input type="number" value="${src.inputId || ''}" data-field="inputId" min="1" max="9999">
           </div>
@@ -1000,6 +1068,15 @@
           <div class="source-col source-col--deck">
             <input type="text" value="${escapeHtml(src.hyperdeckHost || '')}" data-field="hyperdeckHost" placeholder="(no ISO)">
           </div>
+          <div class="source-col source-col--tc">
+            <input type="radio" name="tc-master" value="${src.inputId}" ${src.isTcMaster ? 'checked' : ''} ${src.hasHyperdeck ? '' : 'disabled'} title="${src.hasHyperdeck ? 'Set as TC Master' : 'No HyperDeck configured'}">
+          </div>
+          <div class="source-col source-col--arm">
+            <input type="checkbox" data-field="armed" ${src.armed ? 'checked' : ''} ${src.hasHyperdeck ? '' : 'disabled'} title="${src.hasHyperdeck ? 'Arm for recording' : 'No HyperDeck configured'}">
+          </div>
+          <div class="source-col source-col--edl">
+            <input type="checkbox" data-field="includeInEdl" ${src.includeInEdl ? 'checked' : ''} title="Include in EDL export">
+          </div>
           <div class="source-col source-col--actions">
             <button type="button" class="source-row__delete" data-index="${index}" title="Remove source">×</button>
           </div>
@@ -1008,21 +1085,92 @@
       )
       .join('');
 
-    // Attach delete handlers
+    // Attach event handlers
+    attachSourceEventHandlers(sources);
+    updateTcMasterDisplay();
+  }
+
+  /**
+   * Attach event handlers to source table rows.
+   */
+  function attachSourceEventHandlers(sources) {
+    // Delete handlers
     elements.sourceList.querySelectorAll('.source-row__delete').forEach((btn) => {
       btn.addEventListener('click', () => {
         const index = parseInt(btn.dataset.index, 10);
-        state.inputs.splice(index, 1);
-        // Also remove associated hyperdeck if exists
         const removedInput = sources[index];
+        state.inputs.splice(index, 1);
         if (removedInput) {
           state.hyperdecks = state.hyperdecks.filter(
             (hd) => hd.inputMapping !== removedInput.inputId
           );
+          state.sourceStates.delete(removedInput.inputId);
+          if (state.tcMasterInputId === removedInput.inputId) {
+            state.tcMasterInputId = null;
+          }
         }
         renderSources();
+        scheduleAutoSave();
       });
     });
+
+    // TC Master radio handlers
+    elements.sourceList.querySelectorAll('input[name="tc-master"]').forEach((radio) => {
+      radio.addEventListener('change', () => {
+        const inputId = parseInt(radio.value, 10);
+        state.tcMasterInputId = radio.checked ? inputId : null;
+        renderSources();
+        scheduleAutoSave();
+      });
+    });
+
+    // Armed checkbox handlers
+    elements.sourceList.querySelectorAll('input[data-field="armed"]').forEach((checkbox) => {
+      checkbox.addEventListener('change', () => {
+        const row = checkbox.closest('.source-row');
+        const inputId = parseInt(row.dataset.inputId, 10);
+        const sourceState = getSourceState(inputId);
+        sourceState.armed = checkbox.checked;
+        scheduleAutoSave();
+      });
+    });
+
+    // Include in EDL checkbox handlers
+    elements.sourceList.querySelectorAll('input[data-field="includeInEdl"]').forEach((checkbox) => {
+      checkbox.addEventListener('change', () => {
+        const row = checkbox.closest('.source-row');
+        const inputId = parseInt(row.dataset.inputId, 10);
+        const sourceState = getSourceState(inputId);
+        sourceState.includeInEdl = checkbox.checked;
+        scheduleAutoSave();
+      });
+    });
+
+    // Input field change handlers (for auto-save)
+    elements.sourceList.querySelectorAll('input[data-field="inputId"], input[data-field="name"], input[data-field="reelName"], input[data-field="hyperdeckHost"]').forEach((input) => {
+      input.addEventListener('change', () => {
+        scheduleAutoSave();
+      });
+    });
+  }
+
+  /**
+   * Update the TC Master display in settings.
+   */
+  function updateTcMasterDisplay() {
+    if (!elements.tcMasterName) return;
+
+    if (state.tcMasterInputId !== null) {
+      const source = state.inputs.find((i) => i.inputId === state.tcMasterInputId);
+      if (source) {
+        elements.tcMasterName.textContent = `${source.name} (${source.inputId})`;
+      } else {
+        elements.tcMasterName.textContent = 'None selected';
+        state.tcMasterInputId = null;
+      }
+    } else {
+      elements.tcMasterName.textContent = 'None selected';
+    }
   }
 
   /**
@@ -1341,6 +1489,354 @@
   }
 
   // ============================================================================
+  // Local Storage Persistence
+  // ============================================================================
+
+  /**
+   * Load persisted state from localStorage.
+   */
+  function loadPersistedState() {
+    try {
+      const saved = localStorage.getItem(CONFIG.localStorageKey);
+      if (!saved) return;
+
+      const data = JSON.parse(saved);
+      console.log('[Storage] Loading persisted state');
+
+      // Restore active tab
+      if (data.activeTab) {
+        state.activeTab = data.activeTab;
+      }
+
+      // Restore source states
+      if (data.sourceStates && Array.isArray(data.sourceStates)) {
+        state.sourceStates = new Map(data.sourceStates);
+      }
+
+      // Restore TC master
+      if (data.tcMasterInputId !== undefined) {
+        state.tcMasterInputId = data.tcMasterInputId;
+      }
+
+      // Restore use table TC master flag
+      if (data.useTableTcMaster !== undefined) {
+        state.useTableTcMaster = data.useTableTcMaster;
+      }
+
+      // Restore recent exports
+      if (data.recentExports && Array.isArray(data.recentExports)) {
+        state.recentExports = data.recentExports.map((exp) => ({
+          ...exp,
+          timestamp: new Date(exp.timestamp),
+        }));
+      }
+
+      // Restore export format preference
+      if (data.exportFormat) {
+        const formatInput = document.querySelector(`input[name="export-format"][value="${data.exportFormat}"]`);
+        if (formatInput) {
+          formatInput.checked = true;
+        }
+      }
+
+    } catch (error) {
+      console.error('[Storage] Failed to load persisted state:', error);
+    }
+  }
+
+  /**
+   * Save state to localStorage.
+   */
+  function savePersistedState() {
+    try {
+      const data = {
+        activeTab: state.activeTab,
+        sourceStates: Array.from(state.sourceStates.entries()),
+        tcMasterInputId: state.tcMasterInputId,
+        useTableTcMaster: state.useTableTcMaster,
+        recentExports: state.recentExports,
+        exportFormat: getSelectedFormat(),
+      };
+      localStorage.setItem(CONFIG.localStorageKey, JSON.stringify(data));
+      console.log('[Storage] State persisted');
+    } catch (error) {
+      console.error('[Storage] Failed to persist state:', error);
+    }
+  }
+
+  /**
+   * Schedule auto-save with debouncing.
+   */
+  function scheduleAutoSave() {
+    if (state.autoSaveTimer) {
+      clearTimeout(state.autoSaveTimer);
+    }
+    state.autoSaveTimer = setTimeout(() => {
+      savePersistedState();
+      autoSaveToBackend();
+    }, CONFIG.autoSaveDebounceMs);
+  }
+
+  /**
+   * Auto-save configuration to backend.
+   */
+  async function autoSaveToBackend() {
+    try {
+      const settings = collectSettings();
+      const response = await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settings),
+      });
+
+      if (!response.ok) {
+        console.warn('[AutoSave] Backend save failed:', response.status);
+      } else {
+        console.log('[AutoSave] Configuration saved to backend');
+      }
+    } catch (error) {
+      console.warn('[AutoSave] Backend save failed:', error.message);
+    }
+  }
+
+  // ============================================================================
+  // Timecode Display
+  // ============================================================================
+
+  /**
+   * Start polling timecode from selected source.
+   */
+  function startTimecodePolling() {
+    if (state.timecodePollTimer) {
+      clearInterval(state.timecodePollTimer);
+    }
+
+    // Initial update
+    updateTimecodeDisplay();
+
+    // Start polling
+    state.timecodePollTimer = setInterval(updateTimecodeDisplay, CONFIG.timecodePollInterval);
+  }
+
+  /**
+   * Update timecode display from selected source.
+   */
+  async function updateTimecodeDisplay() {
+    const source = state.config?.timecode?.source || 'system';
+
+    if (source === 'system') {
+      // System clock timecode
+      const tc = generateSystemTimecode();
+      displayTimecode(tc, 'SYS');
+    } else if (source === 'hyperdeck') {
+      // HyperDeck timecode
+      const tcHost = getActiveTcHost();
+      if (tcHost) {
+        try {
+          const tc = await fetchHyperDeckTimecode(tcHost);
+          displayTimecode(tc, 'HD');
+        } catch (error) {
+          displayTimecode('--:--:--:--', 'HD?');
+        }
+      } else {
+        // Fall back to system if no TC master selected
+        const tc = generateSystemTimecode();
+        displayTimecode(tc, 'SYS');
+      }
+    }
+  }
+
+  /**
+   * Get the active timecode host (from table master or manual entry).
+   */
+  function getActiveTcHost() {
+    if (state.useTableTcMaster && state.tcMasterInputId !== null) {
+      // Find the hyperdeck for the TC master input
+      const hd = state.hyperdecks.find((h) => h.inputMapping === state.tcMasterInputId);
+      return hd ? { host: hd.host, port: hd.port || 9993 } : null;
+    } else {
+      // Use manual entry
+      const host = elements.settingTcHyperdeckHost?.value;
+      const port = parseInt(elements.settingTcHyperdeckPort?.value, 10) || 9993;
+      return host ? { host, port } : null;
+    }
+  }
+
+  /**
+   * Generate timecode from system clock.
+   */
+  function generateSystemTimecode() {
+    const now = new Date();
+    const frameRate = state.config?.edl?.frameRate || 25;
+    const h = now.getHours().toString().padStart(2, '0');
+    const m = now.getMinutes().toString().padStart(2, '0');
+    const s = now.getSeconds().toString().padStart(2, '0');
+    const f = Math.floor((now.getMilliseconds() / 1000) * frameRate).toString().padStart(2, '0');
+    return `${h}:${m}:${s}:${f}`;
+  }
+
+  /**
+   * Fetch timecode from HyperDeck via API.
+   */
+  async function fetchHyperDeckTimecode(tcHost) {
+    const response = await fetch(`/api/timecode?host=${encodeURIComponent(tcHost.host)}&port=${tcHost.port}`);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    const data = await response.json();
+    return data.timecode || '--:--:--:--';
+  }
+
+  /**
+   * Display timecode in footer.
+   */
+  function displayTimecode(tc, sourceLabel) {
+    if (elements.timecodeDisplay) {
+      elements.timecodeDisplay.textContent = tc;
+    }
+    if (elements.timecodeSourceIndicator) {
+      elements.timecodeSourceIndicator.textContent = sourceLabel;
+      elements.timecodeSourceIndicator.className = 'timecode-source';
+      if (sourceLabel === 'HD') {
+        elements.timecodeSourceIndicator.classList.add('timecode-source--hyperdeck');
+      } else if (sourceLabel === 'SYS') {
+        elements.timecodeSourceIndicator.classList.add('timecode-source--system');
+      }
+    }
+  }
+
+  // ============================================================================
+  // HyperDeck Recording Control
+  // ============================================================================
+
+  /**
+   * Start recording on all armed HyperDecks.
+   */
+  async function startArmedHyperDecks() {
+    const armedDecks = getArmedHyperDecks();
+    if (armedDecks.length === 0) {
+      console.log('[HyperDeck] No armed decks to start');
+      return;
+    }
+
+    console.log(`[HyperDeck] Starting recording on ${armedDecks.length} armed deck(s)`);
+
+    const results = await Promise.allSettled(
+      armedDecks.map((deck) => startHyperDeckRecording(deck))
+    );
+
+    const failed = results.filter((r) => r.status === 'rejected');
+    if (failed.length > 0) {
+      console.warn(`[HyperDeck] ${failed.length} deck(s) failed to start recording`);
+    }
+  }
+
+  /**
+   * Stop recording on all armed HyperDecks.
+   */
+  async function stopArmedHyperDecks() {
+    const armedDecks = getArmedHyperDecks();
+    if (armedDecks.length === 0) {
+      console.log('[HyperDeck] No armed decks to stop');
+      return;
+    }
+
+    console.log(`[HyperDeck] Stopping recording on ${armedDecks.length} armed deck(s)`);
+
+    const results = await Promise.allSettled(
+      armedDecks.map((deck) => stopHyperDeckRecording(deck))
+    );
+
+    const failed = results.filter((r) => r.status === 'rejected');
+    if (failed.length > 0) {
+      console.warn(`[HyperDeck] ${failed.length} deck(s) failed to stop recording`);
+    }
+  }
+
+  /**
+   * Get list of armed HyperDecks.
+   */
+  function getArmedHyperDecks() {
+    return state.hyperdecks.filter((hd) => {
+      const sourceState = state.sourceStates.get(hd.inputMapping);
+      return sourceState?.armed !== false; // Default to armed if not set
+    });
+  }
+
+  /**
+   * Start recording on a single HyperDeck.
+   */
+  async function startHyperDeckRecording(deck) {
+    const response = await fetch('/api/hyperdeck/record', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        host: deck.host,
+        port: deck.port || 9993,
+        action: 'start',
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to start recording on ${deck.host}`);
+    }
+
+    console.log(`[HyperDeck] Started recording on ${deck.name || deck.host}`);
+  }
+
+  /**
+   * Stop recording on a single HyperDeck.
+   */
+  async function stopHyperDeckRecording(deck) {
+    const response = await fetch('/api/hyperdeck/record', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        host: deck.host,
+        port: deck.port || 9993,
+        action: 'stop',
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to stop recording on ${deck.host}`);
+    }
+
+    console.log(`[HyperDeck] Stopped recording on ${deck.name || deck.host}`);
+  }
+
+  // ============================================================================
+  // TC Source Settings UI
+  // ============================================================================
+
+  /**
+   * Update TC source UI visibility and state.
+   */
+  function updateTcSourceUI() {
+    updateTcSourceVisibility();
+    updateUseTableMasterUI();
+  }
+
+  /**
+   * Update use table master UI visibility.
+   */
+  function updateUseTableMasterUI() {
+    if (!elements.settingTcUseTableMaster) return;
+
+    const useTable = elements.settingTcUseTableMaster.checked;
+    state.useTableTcMaster = useTable;
+
+    if (elements.hyperdeckTcManual) {
+      elements.hyperdeckTcManual.classList.toggle('hidden', useTable);
+    }
+    if (elements.hyperdeckTcFromTable) {
+      elements.hyperdeckTcFromTable.classList.toggle('hidden', !useTable);
+    }
+
+    updateTcMasterDisplay();
+  }
+
+  // ============================================================================
   // Initialisation
   // ============================================================================
 
@@ -1350,9 +1846,15 @@
   function init() {
     console.log('[App] Initialising ATEM ISO EDL Generator Dashboard');
 
+    // Load persisted state from localStorage FIRST
+    loadPersistedState();
+
     // Start clock
     updateClock();
     setInterval(updateClock, CONFIG.clockUpdateInterval);
+
+    // Start timecode display polling
+    startTimecodePolling();
 
     // Start status polling
     fetchStatus();
@@ -1364,12 +1866,24 @@
     // Set up tab navigation
     setupTabNavigation();
 
+    // Restore active tab from persisted state
+    if (state.activeTab && state.activeTab !== 'dashboard') {
+      switchTab(state.activeTab);
+    }
+
     // Set up recording control
     elements.recordingToggle.addEventListener('click', toggleRecording);
 
     // Set up export buttons
     elements.exportDownload.addEventListener('click', downloadExport);
     elements.exportPreview.addEventListener('click', previewExport);
+
+    // Set up export format change handler for persistence
+    elements.exportFormatInputs.forEach((input) => {
+      input.addEventListener('change', () => {
+        scheduleAutoSave();
+      });
+    });
 
     // Set up modal
     setupModal();
@@ -1380,14 +1894,29 @@
     elements.addSource.addEventListener('click', addSource);
 
     // Timecode source dropdown - show/hide HyperDeck settings
-    elements.settingTCSource.addEventListener('change', updateTcSourceVisibility);
+    elements.settingTCSource.addEventListener('change', () => {
+      updateTcSourceUI();
+      scheduleAutoSave();
+    });
+
+    // Use table TC master checkbox
+    if (elements.settingTcUseTableMaster) {
+      elements.settingTcUseTableMaster.checked = state.useTableTcMaster;
+      elements.settingTcUseTableMaster.addEventListener('change', () => {
+        updateUseTableMasterUI();
+        scheduleAutoSave();
+      });
+    }
 
     // Fetch inputs for settings
     fetchInputs();
 
-    // Render empty lists initially
+    // Render lists (will use persisted state for recent exports)
     renderSources();
     renderRecentExports();
+
+    // Initial TC source UI state
+    updateTcSourceUI();
 
     console.log('[App] Initialisation complete');
   }

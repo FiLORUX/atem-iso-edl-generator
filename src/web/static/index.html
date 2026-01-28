@@ -222,6 +222,9 @@
                 <span class="source-col source-col--name">Name</span>
                 <span class="source-col source-col--reel">Reel</span>
                 <span class="source-col source-col--deck">HyperDeck IP</span>
+                <span class="source-col source-col--tc" title="Timecode Master">TC</span>
+                <span class="source-col source-col--arm" title="Arm for Recording">Arm</span>
+                <span class="source-col source-col--edl" title="Include in EDL">EDL</span>
                 <span class="source-col source-col--actions"></span>
               </div>
               <div id="source-list" class="source-table__body">
@@ -298,13 +301,25 @@
                 </select>
               </div>
               <div id="hyperdeck-tc-settings" class="form-group form-group--conditional hidden">
-                <div class="form-row">
-                  <label for="setting-tc-hyperdeck-host">HyperDeck Host:</label>
-                  <input type="text" id="setting-tc-hyperdeck-host" placeholder="10.10.10.50" class="input-text">
+                <div class="form-row form-row--inline">
+                  <label class="checkbox-label">
+                    <input type="checkbox" id="setting-tc-use-table-master">
+                    <span>Use TC Master from Sources table</span>
+                  </label>
                 </div>
-                <div class="form-row">
-                  <label for="setting-tc-hyperdeck-port">Port:</label>
-                  <input type="number" id="setting-tc-hyperdeck-port" value="9993" min="1" max="65535" class="input-number">
+                <div id="hyperdeck-tc-manual" class="form-group">
+                  <div class="form-row">
+                    <label for="setting-tc-hyperdeck-host">HyperDeck Host:</label>
+                    <input type="text" id="setting-tc-hyperdeck-host" placeholder="10.10.10.50" class="input-text">
+                  </div>
+                  <div class="form-row">
+                    <label for="setting-tc-hyperdeck-port">Port:</label>
+                    <input type="number" id="setting-tc-hyperdeck-port" value="9993" min="1" max="65535" class="input-number">
+                  </div>
+                </div>
+                <div id="hyperdeck-tc-from-table" class="tc-master-display hidden">
+                  <span class="tc-master-label">TC Master:</span>
+                  <span id="tc-master-name" class="tc-master-name">None selected</span>
                 </div>
               </div>
             </div>
@@ -327,6 +342,11 @@
     <!-- Footer -->
     <footer class="footer">
       <span class="footer__version">ATEM ISO EDL Generator v0.1.0</span>
+      <span class="footer__timecode">
+        <span class="timecode-label">TC:</span>
+        <span id="timecode-display" class="timecode-value">--:--:--:--</span>
+        <span id="timecode-source-indicator" class="timecode-source">SYS</span>
+      </span>
       <span class="footer__status">
         <span id="clock" class="clock">--:--:--</span>
       </span>
