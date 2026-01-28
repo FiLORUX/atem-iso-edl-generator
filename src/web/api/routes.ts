@@ -43,8 +43,17 @@ interface StatusResponse {
     lastEvent: string | null;
   };
   config: {
-    frameRate: number;
-    dropFrame: boolean;
+    atem: {
+      host: string;
+      mixEffect: number;
+      frameOffset: number;
+    };
+    timecode: {
+      frameRate: number;
+      dropFrame: boolean;
+      startTimecode: string;
+      source: string;
+    };
   };
   recording: {
     active: boolean;
@@ -593,8 +602,17 @@ function buildStatusResponse(state: AppState): StatusResponse {
       lastEvent,
     },
     config: {
-      frameRate: state.config.edl.frameRate,
-      dropFrame: state.config.edl.dropFrame,
+      atem: {
+        host: state.config.atem.host,
+        mixEffect: state.config.atem.mixEffect,
+        frameOffset: state.config.atem.frameOffset ?? 0,
+      },
+      timecode: {
+        frameRate: state.config.edl.frameRate,
+        dropFrame: state.config.edl.dropFrame,
+        startTimecode: state.config.timecode.startTimecode ?? '01:00:00:00',
+        source: state.config.timecode.source,
+      },
     },
     recording: {
       active: state.recording?.active ?? false,
