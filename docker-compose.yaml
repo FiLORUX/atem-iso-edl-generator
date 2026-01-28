@@ -1,0 +1,49 @@
+# ATEM ISO EDL Generator — Docker Compose Configuration
+#
+# Usage:
+#   docker compose up -d        # Start in background
+#   docker compose logs -f      # Follow logs
+#   docker compose down         # Stop and remove
+#
+# For production, use host networking to access devices on local network.
+
+services:
+  atem-edl:
+    build: .
+    container_name: atem-edl-generator
+    restart: unless-stopped
+
+    # Use host networking for device access
+    # Alternative: use bridge networking with proper port mapping
+    network_mode: host
+
+    volumes:
+      # Configuration file
+      - ./config/config.yaml:/app/config/config.yaml:ro
+
+      # Persistent storage for logs and output
+      - ./logs:/app/logs
+      - ./output:/app/output
+
+    environment:
+      - NODE_ENV=production
+      - LOG_LEVEL=info
+      - TZ=Europe/Stockholm
+
+    # Alternative to host networking:
+    # ports:
+    #   - "3000:3000"   # Web interface
+    #   - "9090:9090"   # Prometheus metrics
+
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

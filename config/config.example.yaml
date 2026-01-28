@@ -1,0 +1,180 @@
+# ATEM ISO EDL Generator — Example Configuration
+# Copy this file to config.yaml and adjust for your environment.
+
+# ============================================================================
+# ATEM Switcher Connection
+# ============================================================================
+atem:
+  # IP address of your ATEM switcher
+  host: "192.168.1.240"
+
+  # Mix/Effect bank to monitor (0 = first M/E)
+  # Most switchers have only one M/E (index 0)
+  # Constellation series may have multiple
+  mixEffect: 0
+
+  # Reconnection settings
+  reconnect:
+    enabled: true
+    maxAttempts: 0          # 0 = infinite
+    initialDelayMs: 1000
+    maxDelayMs: 30000
+
+# ============================================================================
+# HyperDeck Connections
+# ============================================================================
+# Map each ISO recording source to a HyperDeck
+# The inputMapping links ATEM inputs to HyperDeck recordings
+
+hyperdecks:
+  - name: "ISO-1"
+    host: "192.168.1.241"
+    port: 9993              # Default HyperDeck port
+    inputMapping: 1         # ATEM input number this records
+    enabled: true
+
+  - name: "ISO-2"
+    host: "192.168.1.242"
+    port: 9993
+    inputMapping: 2
+    enabled: true
+
+  - name: "ISO-3"
+    host: "192.168.1.243"
+    port: 9993
+    inputMapping: 3
+    enabled: true
+
+  - name: "ISO-4"
+    host: "192.168.1.244"
+    port: 9993
+    inputMapping: 4
+    enabled: true
+
+# ============================================================================
+# Input Configuration
+# ============================================================================
+# Define human-readable names and EDL identifiers for each ATEM input
+
+inputs:
+  1:
+    name: "Camera 1 - Wide"
+    reelName: "CAM1"        # Max 8 characters for EDL compatibility
+    filePrefix: "CAM1_"     # Expected filename prefix on HyperDeck
+
+  2:
+    name: "Camera 2 - Close"
+    reelName: "CAM2"
+    filePrefix: "CAM2_"
+
+  3:
+    name: "Camera 3 - Guest"
+    reelName: "CAM3"
+    filePrefix: "CAM3_"
+
+  4:
+    name: "Camera 4 - Handheld"
+    reelName: "CAM4"
+    filePrefix: "CAM4_"
+
+  # Graphics and other sources
+  1000:
+    name: "Media Player 1"
+    reelName: "MP1"
+    filePrefix: "GFX_"
+
+  2001:
+    name: "Color Bars"
+    reelName: "BARS"
+    filePrefix: null        # No recording for this source
+
+# ============================================================================
+# EDL Output Settings
+# ============================================================================
+edl:
+  # Where to save generated EDL files
+  outputDirectory: "./output"
+
+  # Output format (currently only cmx3600 supported)
+  format: "cmx3600"
+
+  # Timeline frame rate — must match your project
+  # Common values: 23.976, 24, 25, 29.97, 30, 50, 59.94, 60
+  frameRate: 25
+
+  # Drop-frame timecode (only for 29.97 and 59.94)
+  dropFrame: false
+
+  # Include extended comment lines for NLE compatibility
+  # Adds: FROM CLIP NAME, SOURCE FILE, ATEM INPUT
+  includeComments: true
+
+  # Default title for EDL (can be overridden per-session)
+  defaultTitle: "LIVE_PRODUCTION"
+
+# ============================================================================
+# Timecode Settings
+# ============================================================================
+timecode:
+  # Timecode source:
+  # - "system"    : Use system clock (simplest, may drift)
+  # - "ntp"       : Sync to NTP server (recommended)
+  # - "hyperdeck" : Use timecode from HyperDeck (requires deck connection)
+  source: "system"
+
+  # NTP server (only used if source is "ntp")
+  ntpServer: "pool.ntp.org"
+
+  # Starting timecode for new sessions (HH:MM:SS:FF)
+  # Set to "auto" to use current time of day
+  startTimecode: "01:00:00:00"
+
+# ============================================================================
+# Web Interface
+# ============================================================================
+web:
+  enabled: true
+  port: 3000
+  host: "0.0.0.0"           # Listen on all interfaces
+
+  # Basic authentication (optional)
+  # auth:
+  #   enabled: true
+  #   username: "operator"
+  #   password: "changeme"
+
+# ============================================================================
+# Logging
+# ============================================================================
+logging:
+  # Log level: "debug", "info", "warn", "error"
+  level: "info"
+
+  # Write all events to JSONL file for replay/analysis
+  eventLog: true
+
+  # Event log directory
+  eventLogDirectory: "./logs"
+
+  # Rotate logs daily
+  rotateDaily: true
+
+  # Pretty print to console (disable in production)
+  prettyPrint: true
+
+# ============================================================================
+# Health Monitoring
+# ============================================================================
+health:
+  # Health check endpoint
+  enabled: true
+
+  # Prometheus metrics endpoint
+  metrics:
+    enabled: true
+    port: 9090
+
+  # Watchdog — restart if no events for this duration
+  watchdog:
+    enabled: false
+    timeoutMs: 300000       # 5 minutes
