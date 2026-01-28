@@ -38,6 +38,7 @@
     recordingTimer: null,
     config: null,
     inputs: [],
+    hyperdecks: [],
     recentExports: [],
   };
 
@@ -99,6 +100,15 @@
     // Settings - Input mapping
     inputMapping: document.getElementById('input-mapping'),
     addInputMapping: document.getElementById('add-input-mapping'),
+
+    // Settings - HyperDecks
+    hyperdeckList: document.getElementById('hyperdeck-list'),
+    addHyperdeck: document.getElementById('add-hyperdeck'),
+
+    // Settings - Timecode HyperDeck
+    hyperdeckTcSettings: document.getElementById('hyperdeck-tc-settings'),
+    settingTcHyperdeckHost: document.getElementById('setting-tc-hyperdeck-host'),
+    settingTcHyperdeckPort: document.getElementById('setting-tc-hyperdeck-port'),
 
     // Settings - Actions
     settingsSave: document.getElementById('settings-save'),
@@ -308,6 +318,12 @@
     if (payload.inputs) {
       state.inputs = payload.inputs;
       renderInputMappings();
+    }
+
+    // HyperDecks
+    if (payload.hyperdecks) {
+      state.hyperdecks = payload.hyperdecks;
+      renderHyperdecks();
     }
 
     // Enable export buttons if we have events
@@ -810,6 +826,27 @@
       elements.settingDropFrame.checked = config.timecode.dropFrame || false;
       elements.settingStartTC.value = config.timecode.startTimecode || '01:00:00:00';
       elements.settingTCSource.value = config.timecode.source || 'system';
+
+      // HyperDeck timecode source settings
+      if (config.timecode.hyperdeck) {
+        elements.settingTcHyperdeckHost.value = config.timecode.hyperdeck.host || '';
+        elements.settingTcHyperdeckPort.value = config.timecode.hyperdeck.port || 9993;
+      }
+
+      // Show/hide hyperdeck TC settings based on source
+      updateTcSourceVisibility();
+    }
+  }
+
+  /**
+   * Show/hide HyperDeck timecode settings based on selected source.
+   */
+  function updateTcSourceVisibility() {
+    const source = elements.settingTCSource.value;
+    if (source === 'hyperdeck') {
+      elements.hyperdeckTcSettings.classList.remove('hidden');
+    } else {
+      elements.hyperdeckTcSettings.classList.add('hidden');
     }
   }
 
@@ -817,19 +854,31 @@
    * Collect settings from form.
    */
   function collectSettings() {
+    const source = elements.settingTCSource.value;
+    const timecode = {
+      frameRate: parseFloat(elements.settingFrameRate.value),
+      dropFrame: elements.settingDropFrame.checked,
+      startTimecode: elements.settingStartTC.value,
+      source: source,
+    };
+
+    // Include HyperDeck TC config if source is hyperdeck
+    if (source === 'hyperdeck' && elements.settingTcHyperdeckHost.value) {
+      timecode.hyperdeck = {
+        host: elements.settingTcHyperdeckHost.value,
+        port: parseInt(elements.settingTcHyperdeckPort.value, 10) || 9993,
+      };
+    }
+
     return {
       atem: {
         host: elements.settingAtemHost.value || '10.7.77.7',
         mixEffect: parseInt(elements.settingAtemME.value, 10),
         frameOffset: parseInt(elements.settingFrameOffset.value, 10),
       },
-      timecode: {
-        frameRate: parseFloat(elements.settingFrameRate.value),
-        dropFrame: elements.settingDropFrame.checked,
-        startTimecode: elements.settingStartTC.value,
-        source: elements.settingTCSource.value,
-      },
+      timecode,
       inputs: collectInputMappings(),
+      hyperdecks: collectHyperdecks(),
     };
   }
 
@@ -982,6 +1031,129 @@
     });
 
     return mappings;
+  }
+
+  // ============================================================================
+  // HyperDeck Management
+  // ============================================================================
+
+  /**
+   * Build input options for dropdown.
+   * Uses currently configured inputs or falls back to generic list.
+   */
+  function buildInputOptions(selectedInputId) {
+    // Build options from configured inputs, or provide 1-20 as fallback
+    const inputs = state.inputs.length > 0 ? state.inputs : Array.from({ length: 20 }, (_, i) => ({
+      inputId: i + 1,
+      name: `Input ${i + 1}`,
+    }));
+
+    return inputs
+      .map((input) => {
+        const selected = input.inputId === selectedInputId ? 'selected' : '';
+        return `<option value="${input.inputId}" ${selected}>${input.inputId}: ${escapeHtml(input.name)}</option>`;
+      })
+      .join('');
+  }
+
+  /**
+   * Render HyperDeck list.
+   */
+  function renderHyperdecks() {
+    if (state.hyperdecks.length === 0) {
+      elements.hyperdeckList.innerHTML =
+        '<div class="hyperdeck-list__empty">No HyperDecks configured. Add decks below.</div>';
+      return;
+    }
+
+    elements.hyperdeckList.innerHTML = state.hyperdecks
+      .map(
+        (hd, index) => `
+        <div class="hyperdeck-item ${hd.enabled === false ? 'hyperdeck-item--disabled' : ''}" data-index="${index}">
+          <div class="hyperdeck-item__field">
+            <label>Name</label>
+            <input type="text" value="${escapeHtml(hd.name || '')}" data-field="name" placeholder="CAM1 ISO">
+          </div>
+          <div class="hyperdeck-item__field">
+            <label>Host IP</label>
+            <input type="text" value="${escapeHtml(hd.host || '')}" data-field="host" placeholder="10.10.10.20">
+          </div>
+          <div class="hyperdeck-item__field">
+            <label>Records Input</label>
+            <select data-field="inputMapping">
+              ${buildInputOptions(hd.inputMapping)}
+            </select>
+          </div>
+          <div class="hyperdeck-item__field hyperdeck-item__enabled">
+            <label>On</label>
+            <input type="checkbox" data-field="enabled" ${hd.enabled !== false ? 'checked' : ''}>
+          </div>
+          <button type="button" class="hyperdeck-item__delete" data-index="${index}" title="Remove HyperDeck">
+            &times;
+          </button>
+        </div>
+      `
+      )
+      .join('');
+
+    // Attach remove handlers
+    elements.hyperdeckList.querySelectorAll('.hyperdeck-item__delete').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const index = parseInt(btn.dataset.index, 10);
+        state.hyperdecks.splice(index, 1);
+        renderHyperdecks();
+      });
+    });
+  }
+
+  /**
+   * Add a new HyperDeck.
+   */
+  function addHyperdeck() {
+    // Find the next unused input
+    const usedInputs = new Set(state.hyperdecks.map((hd) => hd.inputMapping));
+    let nextInput = 1;
+    while (usedInputs.has(nextInput) && nextInput <= 20) {
+      nextInput++;
+    }
+
+    state.hyperdecks.push({
+      name: `ISO ${state.hyperdecks.length + 1}`,
+      host: '',
+      port: 9993,
+      inputMapping: nextInput,
+      enabled: true,
+      frameOffset: 0,
+    });
+    renderHyperdecks();
+  }
+
+  /**
+   * Collect HyperDeck settings from form.
+   */
+  function collectHyperdecks() {
+    const items = elements.hyperdeckList.querySelectorAll('.hyperdeck-item');
+    const hyperdecks = [];
+
+    items.forEach((item) => {
+      const name = item.querySelector('[data-field="name"]').value;
+      const host = item.querySelector('[data-field="host"]').value;
+      const inputMapping = parseInt(item.querySelector('[data-field="inputMapping"]').value, 10);
+      const enabled = item.querySelector('[data-field="enabled"]').checked;
+
+      if (name && host) {
+        hyperdecks.push({
+          name,
+          host,
+          port: 9993,
+          inputMapping,
+          enabled,
+          frameOffset: 0,
+        });
+      }
+    });
+
+    return hyperdecks;
   }
 
   // ============================================================================
@@ -1284,11 +1456,16 @@
     elements.settingsSave.addEventListener('click', saveSettings);
     elements.settingsReset.addEventListener('click', resetSettings);
     elements.addInputMapping.addEventListener('click', addInputMapping);
+    elements.addHyperdeck.addEventListener('click', addHyperdeck);
+
+    // Timecode source dropdown - show/hide HyperDeck settings
+    elements.settingTCSource.addEventListener('change', updateTcSourceVisibility);
 
     // Fetch inputs for settings
     fetchInputs();
 
-    // Render empty recent exports
+    // Render empty lists initially
+    renderHyperdecks();
     renderRecentExports();
 
     console.log('[App] Initialisation complete');

@@ -209,15 +209,27 @@
 
       <!-- Settings Tab -->
       <div id="tab-settings" class="tab-content">
-        <!-- Left Column: Input Mapping -->
+        <!-- Left Column: Input Mapping + HyperDecks -->
         <div class="settings-column settings-column--left">
           <section class="panel settings-panel">
             <h2 class="panel__title">Input Mapping</h2>
+            <p class="panel__hint">Map ATEM inputs to names and reel codes for EDL export.</p>
             <div id="input-mapping" class="input-mapping">
               <!-- Populated dynamically -->
             </div>
             <button id="add-input-mapping" class="btn btn--secondary">
               <span class="btn__icon">+</span> Add Input
+            </button>
+          </section>
+
+          <section class="panel settings-panel">
+            <h2 class="panel__title">HyperDecks</h2>
+            <p class="panel__hint">Configure ISO recording decks. Each deck records one input.</p>
+            <div id="hyperdeck-list" class="hyperdeck-list">
+              <!-- Populated dynamically -->
+            </div>
+            <button id="add-hyperdeck" class="btn btn--secondary">
+              <span class="btn__icon">+</span> Add HyperDeck
             </button>
           </section>
         </div>
@@ -281,8 +293,18 @@
                 <label for="setting-tc-source">Timecode Source:</label>
                 <select id="setting-tc-source" class="input-select">
                   <option value="system" selected>System Clock</option>
-                  <option value="hyperdeck">HyperDeck</option>
+                  <option value="hyperdeck">HyperDeck (SDI/RP-188)</option>
                 </select>
+              </div>
+              <div id="hyperdeck-tc-settings" class="form-group form-group--conditional hidden">
+                <div class="form-row">
+                  <label for="setting-tc-hyperdeck-host">HyperDeck Host:</label>
+                  <input type="text" id="setting-tc-hyperdeck-host" placeholder="10.10.10.50" class="input-text">
+                </div>
+                <div class="form-row">
+                  <label for="setting-tc-hyperdeck-port">Port:</label>
+                  <input type="number" id="setting-tc-hyperdeck-port" value="9993" min="1" max="65535" class="input-number">
+                </div>
               </div>
             </div>
           </section>
