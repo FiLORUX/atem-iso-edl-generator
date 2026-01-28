@@ -51,6 +51,24 @@ export {
   type GeneratorOptions,
 } from './generators/edl/cmx3600.js';
 
+// Re-export FCP7 XML generator
+export {
+  generateFcp7Xml,
+  generateFcp7XmlFromEvents,
+  buildSequenceXml,
+  buildClipitemXml,
+  buildTransitionXml,
+  buildRateXml,
+  encodePathUrl,
+  framesToTimecodeString,
+  isNtscFrameRate,
+  getTimebase,
+  validateFcp7Options,
+  type Fcp7Options,
+  type Fcp7Clip,
+  type Fcp7Transition,
+} from './generators/xml/fcp7.js';
+
 // Re-export web server
 export {
   createWebServer,
