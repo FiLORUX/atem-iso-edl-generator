@@ -71,22 +71,22 @@ hyperdecks:
 
 inputs:
   1:
-    name: "Centre Wide"
+    name: "Cam 1 - Centre Wide"
     reelName: "CAM1"        # Max 8 characters for EDL compatibility
     filePrefix: "CAM1_"     # Expected filename prefix on HyperDeck
 
   2:
-    name: "Centre MCU"
+    name: "Cam 2 - Centre MCU"
     reelName: "CAM2"
     filePrefix: "CAM2_"
 
   3:
-    name: "Centre ECU"
+    name: "Cam 3 - Centre ECU"
     reelName: "CAM3"
     filePrefix: "CAM3_"
 
   4:
-    name: "Steadicam"
+    name: "Cam 4 - Steadicam"
     reelName: "CAM4"
     filePrefix: "CAM4_"
 
