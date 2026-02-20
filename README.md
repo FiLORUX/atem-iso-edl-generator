@@ -367,7 +367,7 @@ npm run test:watch          # Watch mode
 
 ## Licence
 
-MIT License — see [LICENSE](LICENSE) for details.
+MIT Licence — see [LICENSE](LICENSE) for details.
 
 ---
 
@@ -379,3 +379,7 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 *Built for broadcast. Designed for reliability.*
+
+---
+
+David Thåst · [thåst.se](https://xn--thst-roa.se) · [FiLORUX](https://github.com/FiLORUX)
