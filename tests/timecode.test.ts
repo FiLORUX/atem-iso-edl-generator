@@ -150,3 +150,33 @@ describe('validateTimecode', () => {
     expect(errors[0]).toContain('Drop-frame');
   });
 });
+
+describe('drop-frame reference boundaries', () => {
+  const cases = [
+    { rate: 29.97, frames: 1800, tc: '00:01:00;02' },
+    { rate: 29.97, frames: 3598, tc: '00:02:00;02' },
+    { rate: 29.97, frames: 17982, tc: '00:10:00;00' },
+    { rate: 29.97, frames: 107892, tc: '01:00:00;00' },
+    { rate: 59.94, frames: 3600, tc: '00:01:00;04' },
+    { rate: 59.94, frames: 7196, tc: '00:02:00;04' },
+    { rate: 59.94, frames: 35964, tc: '00:10:00;00' },
+    { rate: 59.94, frames: 215784, tc: '01:00:00;00' },
+  ];
+  for (const { rate, frames, tc } of cases) {
+    it(`${rate} maps frame ${frames} to ${tc} in both directions`, () => {
+      const options = { frameRate: rate, dropFrame: true };
+      expect(formatTimecode(framesToTimecode(frames, options), true)).toBe(tc);
+      expect(timecodeToFrames(parseTimecode(tc), options)).toBe(frames);
+      for (let offset = -2; offset <= 2; offset++) {
+        expect(timecodeToFrames(framesToTimecode(frames + offset, options), options)).toBe(frames + offset);
+      }
+    });
+  }
+  it('rejects all four skipped labels at 59.94', () => {
+    const options = { frameRate: 59.94, dropFrame: true };
+    for (let frame = 0; frame < 4; frame++) {
+      expect(validateTimecode({ hours: 0, minutes: 1, seconds: 0, frames: frame }, options)).not.toEqual([]);
+    }
+    expect(validateTimecode({ hours: 0, minutes: 1, seconds: 0, frames: 4 }, options)).toEqual([]);
+  });
+});

@@ -247,3 +247,18 @@ describe('validateEdl', () => {
     expect(errors[0]).toContain('8 characters');
   });
 });
+
+it('exports 59.94 drop-frame labels across an hour boundary', async () => {
+  const { framesToTimecode, parseTimecode, timecodeToFrames } = await import('../src/core/timecode/timecode.js');
+  const options = { frameRate: 59.94, dropFrame: true };
+  const sourceIn = framesToTimecode(215783, options);
+  const sourceOut = framesToTimecode(215784, options);
+  const text = generateEdl({ title: 'BOUNDARY', ...options, events: [{
+    eventNumber: 1, reelName: 'CAM1', track: 'V', transition: 'C', transitionFrames: 0,
+    sourceIn, sourceOut, recordIn: sourceIn, recordOut: sourceOut, comments: [],
+  }] });
+  const labels = text.match(/\d\d:\d\d:\d\d;\d\d/g) ?? [];
+  expect(labels).toEqual(['00:59:59;59', '01:00:00;00', '00:59:59;59', '01:00:00;00']);
+  expect(labels.map((label) => timecodeToFrames(parseTimecode(label), options)))
+    .toEqual([215783, 215784, 215783, 215784]);
+});
