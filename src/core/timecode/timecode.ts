@@ -78,10 +78,10 @@ export function timecodeToFrames(tc: Timecode, options: TimecodeOptions): number
 
   // Apply drop-frame correction
   if (dropFrame && DROP_FRAME_RATES.includes(frameRate)) {
-    // Drop-frame skips frame numbers 0 and 1 at the start of each minute,
-    // except for minutes divisible by 10.
+    // Skip two labels at 29.97, or four at 59.94, per affected minute.
     const totalMinutes = tc.hours * 60 + tc.minutes;
-    const droppedFrames = 2 * (totalMinutes - Math.floor(totalMinutes / 10));
+    const droppedFrames = (nominalFrameRate === 60 ? 4 : 2) *
+      (totalMinutes - Math.floor(totalMinutes / 10));
     totalFrames -= droppedFrames;
   }
 
@@ -99,29 +99,14 @@ export function framesToTimecode(totalFrames: number, options: TimecodeOptions):
   let frames = totalFrames;
 
   if (dropFrame && DROP_FRAME_RATES.includes(frameRate)) {
-    // Reverse the drop-frame calculation
-    // This is more complex than forward conversion
-    const framesPerMinute = nominalFrameRate * 60 - 2;
-    const framesPer10Minutes = framesPerMinute * 10 + 2;
-
+    const dropCount = nominalFrameRate === 60 ? 4 : 2;
+    const framesPerMinute = nominalFrameRate * 60 - dropCount;
+    const framesPer10Minutes = nominalFrameRate * 600 - dropCount * 9;
     const tenMinuteBlocks = Math.floor(frames / framesPer10Minutes);
-    let remainingFrames = frames % framesPer10Minutes;
-
-    // Add back dropped frames for complete 10-minute blocks
-    frames = tenMinuteBlocks * nominalFrameRate * 60 * 10;
-
-    // Handle the first minute of the 10-minute block (no drops)
-    if (remainingFrames < nominalFrameRate * 60) {
-      frames += remainingFrames;
-    } else {
-      remainingFrames -= nominalFrameRate * 60;
-      frames += nominalFrameRate * 60;
-
-      // Handle remaining minutes (each has 2 dropped frames)
-      const additionalMinutes = Math.floor(remainingFrames / framesPerMinute);
-      const finalRemainder = remainingFrames % framesPerMinute;
-
-      frames += additionalMinutes * nominalFrameRate * 60 + finalRemainder + 2;
+    const remainder = frames % framesPer10Minutes;
+    frames += dropCount * 9 * tenMinuteBlocks;
+    if (remainder >= dropCount) {
+      frames += dropCount * Math.floor((remainder - dropCount) / framesPerMinute);
     }
   }
 
@@ -230,11 +215,11 @@ export function validateTimecode(tc: Timecode, options: TimecodeOptions): string
 
   // Check for invalid drop-frame values
   if (options.dropFrame && DROP_FRAME_RATES.includes(options.frameRate)) {
-    // Frames 0 and 1 are skipped at the start of each minute (except every 10th)
-    if (tc.frames < 2 && tc.seconds === 0 && tc.minutes % 10 !== 0) {
+    const dropCount = nominalFrameRate === 60 ? 4 : 2;
+    if (tc.frames < dropCount && tc.seconds === 0 && tc.minutes % 10 !== 0) {
       errors.push(
         `Drop-frame timecode ${formatTimecode(tc, true)} is invalid: ` +
-        `frames 0-1 are skipped at minute ${tc.minutes}`
+        `frames 0-${dropCount - 1} are skipped at minute ${tc.minutes}`
       );
     }
   }
